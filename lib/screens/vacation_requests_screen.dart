@@ -36,8 +36,7 @@ class _VacationRequestsScreenState extends State<VacationRequestsScreen> {
       return const Scaffold(body: Center(child: CircularProgressIndicator()));
     }
 
-    final approvers = dataService.getVacationApproversForUser(currentUser)
-      ..sort((a, b) => a.fullName.compareTo(b.fullName));
+    final approvers = dataService.getVacationApproversForUser(currentUser);
     if (_selectedApproverId != null &&
         !approvers.any((user) => user.id == _selectedApproverId)) {
       _selectedApproverId = null;

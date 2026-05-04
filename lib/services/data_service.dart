@@ -1141,7 +1141,26 @@ class DataService extends ChangeNotifier {
       ];
     }
 
-    if (user.role == UserRole.manager || user.role == UserRole.admin) {
+    if (user.teamLeadId != null && user.teamLeadId!.trim().isNotEmpty) {
+      final teamLeads = getUsersByRole(UserRole.teamLead);
+      final directTeamLead = _findUserByReference(
+        reference: user.teamLeadId!,
+        expectedRole: UserRole.teamLead,
+      );
+      final fallbackUsers = user.role == UserRole.admin
+          ? _users.where((u) => u.isActive && u.id != user.id)
+          : teamLeads.where((tl) => tl.id != directTeamLead?.id);
+      return [
+        if (directTeamLead != null && directTeamLead.isActive) directTeamLead,
+        ...fallbackUsers.where((u) => u.id != directTeamLead?.id),
+      ];
+    }
+
+    if (user.role == UserRole.admin) {
+      return _users.where((u) => u.isActive && u.id != user.id).toList();
+    }
+
+    if (user.role == UserRole.manager) {
       return _users
           .where(
             (u) =>
@@ -1153,13 +1172,31 @@ class DataService extends ChangeNotifier {
     }
 
     final teamLeads = getUsersByRole(UserRole.teamLead);
-    final directTeamLead = user.teamLeadId == null
-        ? null
-        : getUserById(user.teamLeadId!);
-    return [
-      if (directTeamLead != null && directTeamLead.isActive) directTeamLead,
-      ...teamLeads.where((tl) => tl.id != directTeamLead?.id),
-    ];
+    return teamLeads;
+  }
+
+  User? _findUserByReference({
+    required String reference,
+    UserRole? expectedRole,
+  }) {
+    final normalized = reference.trim().toLowerCase();
+    if (normalized.isEmpty) {
+      return null;
+    }
+
+    for (final user in _users) {
+      if (!user.isActive) {
+        continue;
+      }
+      if (expectedRole != null && user.role != expectedRole) {
+        continue;
+      }
+      if (user.id.trim().toLowerCase() == normalized ||
+          user.email.trim().toLowerCase() == normalized) {
+        return user;
+      }
+    }
+    return null;
   }
 
   List<VacationRequest> getVacationRequestsForRequester(String userId) {
