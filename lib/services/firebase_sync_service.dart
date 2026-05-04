@@ -5,6 +5,7 @@ import '../models/commessa_model.dart';
 import '../models/project_model.dart';
 import '../models/timesheet_entry.dart';
 import '../models/user_model.dart';
+import '../models/vacation_request_model.dart';
 import 'firebase_bootstrap_service.dart';
 
 class FirebaseSyncService {
@@ -34,6 +35,9 @@ class FirebaseSyncService {
   CollectionReference<Map<String, dynamic>>? _entriesRef(
     FirebaseFirestore db,
   ) => db.collection('timesheet_entries');
+  CollectionReference<Map<String, dynamic>>? _vacationRequestsRef(
+    FirebaseFirestore db,
+  ) => db.collection('vacation_requests');
 
   Future<List<User>> fetchUsers() async {
     final db = _safeFirestore();
@@ -148,6 +152,24 @@ class FirebaseSyncService {
     }
   }
 
+  Future<List<VacationRequest>> fetchVacationRequests() async {
+    final db = _safeFirestore();
+    if (db == null) {
+      return [];
+    }
+
+    try {
+      final snapshot = await _vacationRequestsRef(db)!.get();
+      return snapshot.docs
+          .map(_parseVacationRequestDoc)
+          .whereType<VacationRequest>()
+          .toList();
+    } catch (e) {
+      debugPrint('Errore fetchVacationRequests Firebase: $e');
+      return [];
+    }
+  }
+
   Stream<List<User>> watchUsers() {
     final db = _safeFirestore();
     if (db == null) {
@@ -202,6 +224,20 @@ class FirebaseSyncService {
       (snapshot) => snapshot.docs
           .map(_parseTimesheetDoc)
           .whereType<TimesheetEntry>()
+          .toList(),
+    );
+  }
+
+  Stream<List<VacationRequest>> watchVacationRequests() {
+    final db = _safeFirestore();
+    if (db == null) {
+      return const Stream<List<VacationRequest>>.empty();
+    }
+
+    return _vacationRequestsRef(db)!.snapshots().map(
+      (snapshot) => snapshot.docs
+          .map(_parseVacationRequestDoc)
+          .whereType<VacationRequest>()
           .toList(),
     );
   }
@@ -275,6 +311,17 @@ class FirebaseSyncService {
     await _entriesRef(
       db,
     )!.doc(entry.id).set(entry.toJson(), SetOptions(merge: true));
+  }
+
+  Future<void> upsertVacationRequest(VacationRequest request) async {
+    final db = _safeFirestore();
+    if (db == null) {
+      return;
+    }
+
+    await _vacationRequestsRef(
+      db,
+    )!.doc(request.id).set(request.toJson(), SetOptions(merge: true));
   }
 
   Future<void> deleteTimesheetEntry(String entryId) async {
@@ -483,6 +530,24 @@ class FirebaseSyncService {
     await batch.commit();
   }
 
+  Future<void> syncVacationRequests(List<VacationRequest> requests) async {
+    final db = _safeFirestore();
+    if (db == null) {
+      return;
+    }
+
+    final batch = db.batch();
+    final requestsRef = _vacationRequestsRef(db)!;
+    for (final request in requests) {
+      batch.set(
+        requestsRef.doc(request.id),
+        request.toJson(),
+        SetOptions(merge: true),
+      );
+    }
+    await batch.commit();
+  }
+
   User? _parseUserDoc(DocumentSnapshot<Map<String, dynamic>> doc) {
     final data = doc.data();
     if (data == null) {
@@ -593,6 +658,42 @@ class FirebaseSyncService {
       return TimesheetEntry.fromJson(map);
     } catch (e) {
       debugPrint('Skip timesheet doc non valido (${doc.id}): $e');
+      return null;
+    }
+  }
+
+  VacationRequest? _parseVacationRequestDoc(
+    DocumentSnapshot<Map<String, dynamic>> doc,
+  ) {
+    final data = doc.data();
+    if (data == null) {
+      return null;
+    }
+
+    try {
+      final map = Map<String, dynamic>.from(data);
+      map['id'] = (map['id'] ?? doc.id).toString();
+      map['requesterUserId'] = (map['requesterUserId'] ?? '').toString();
+      map['approverUserId'] = (map['approverUserId'] ?? '').toString();
+      map['startDate'] = _toIsoString(map['startDate']) ?? _nowIso();
+      map['endDate'] = _toIsoString(map['endDate']) ?? _nowIso();
+      map['workingDays'] = (map['workingDays'] as num?)?.toInt() ?? 0;
+      map['motivation'] = (map['motivation'] ?? '').toString();
+      map['status'] = (map['status'] ?? 'pending').toString();
+      map['reviewerUserId'] = map['reviewerUserId']?.toString();
+      map['reviewerNote'] = map['reviewerNote']?.toString();
+      map['createdAt'] = _toIsoString(map['createdAt']) ?? _nowIso();
+      map['updatedAt'] = _toIsoString(map['updatedAt']);
+      map['reviewedAt'] = _toIsoString(map['reviewedAt']);
+
+      if ((map['requesterUserId'] as String).isEmpty ||
+          (map['approverUserId'] as String).isEmpty) {
+        return null;
+      }
+
+      return VacationRequest.fromJson(map);
+    } catch (e) {
+      debugPrint('Skip vacation request doc non valido (${doc.id}): $e');
       return null;
     }
   }

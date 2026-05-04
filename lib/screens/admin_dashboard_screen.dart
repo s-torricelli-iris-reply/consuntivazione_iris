@@ -22,6 +22,7 @@ import 'manage_users_screen.dart';
 import 'person_detail_screen.dart';
 import 'project_detail_screen.dart';
 import 'team_overview_screen.dart';
+import 'vacation_requests_screen.dart';
 
 class AdminDashboardScreen extends StatefulWidget {
   const AdminDashboardScreen({super.key});
@@ -159,13 +160,15 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
     required List<Project> projects,
     required DataService dataService,
   }) async {
-    final workbook = xlsio.Workbook(3);
+    final workbook = xlsio.Workbook(4);
     final usersSheet = workbook.worksheets[0];
     usersSheet.name = 'Utenti';
     final projectsSheet = workbook.worksheets[1];
     projectsSheet.name = 'Progetti';
     final economicsSheet = workbook.worksheets[2];
     economicsSheet.name = 'Economico';
+    final tlSummarySheet = workbook.worksheets[3];
+    tlSummarySheet.name = 'Riepilogo TL';
 
     final monthStart = DateTime(monthReference.year, monthReference.month, 1);
     final monthEnd = DateTime(monthReference.year, monthReference.month + 1, 0);
@@ -204,7 +207,8 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
     projectsSheet.getRangeByName('C1').setText('Commessa');
     projectsSheet.getRangeByName('D1').setText('Ore Mese');
     projectsSheet.getRangeByName('E1').setText('Owner');
-    projectsSheet.getRangeByName('F1').setText('Contributors');
+    projectsSheet.getRangeByName('F1').setText('TL');
+    projectsSheet.getRangeByName('G1').setText('Contributors');
 
     var projectRow = 2;
     for (final project in projects) {
@@ -230,9 +234,79 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
           .setText(owner?.fullName ?? '');
       projectsSheet
           .getRangeByIndex(projectRow, 6)
+          .setText(owner?.surname ?? '');
+      projectsSheet
+          .getRangeByIndex(projectRow, 7)
           .setNumber(project.assignedUserIds.length.toDouble());
       projectRow++;
     }
+
+    tlSummarySheet.getRangeByName('A1').setText('Mese');
+    tlSummarySheet.getRangeByName('B1').setText('TL');
+    tlSummarySheet.getRangeByName('C1').setText('Progetto');
+    tlSummarySheet.getRangeByName('D1').setText('Ore progetto');
+    tlSummarySheet.getRangeByName('E1').setText('Membro team');
+    tlSummarySheet.getRangeByName('F1').setText('Email membro');
+    tlSummarySheet.getRangeByName('G1').setText('Ore membro su progetto');
+    tlSummarySheet.getRangeByName('H1').setText('Ore totali membro mese');
+
+    var summaryRow = 2;
+    var grandTotal = 0.0;
+    final projectsOrdered = projects.toList()
+      ..sort((a, b) => a.name.compareTo(b.name));
+    for (final project in projectsOrdered) {
+      final projectEntries = dataService.getEntriesForProject(
+        project.id,
+        startDate: monthStart,
+        endDate: monthEnd,
+      );
+      final projectTotal = projectEntries.fold<double>(
+        0,
+        (sum, entry) => sum + entry.hours,
+      );
+      if (projectTotal <= 0) {
+        continue;
+      }
+      grandTotal += projectTotal;
+
+      final owner = project.ownerUserId == null
+          ? null
+          : dataService.getUserById(project.ownerUserId!);
+      final byUser = <String, double>{};
+      for (final entry in projectEntries) {
+        byUser[entry.userId] = (byUser[entry.userId] ?? 0) + entry.hours;
+      }
+      final rows = byUser.entries.toList()
+        ..sort((a, b) => b.value.compareTo(a.value));
+
+      for (final userEntry in rows) {
+        final member = dataService.getUserById(userEntry.key);
+        final memberMonthTotal = dataService
+            .getEntriesForUser(userEntry.key, monthStart, monthEnd)
+            .fold<double>(0, (sum, entry) => sum + entry.hours);
+        tlSummarySheet.getRangeByIndex(summaryRow, 1).setText(monthLabel);
+        tlSummarySheet
+            .getRangeByIndex(summaryRow, 2)
+            .setText(owner?.fullName ?? 'TL non assegnato');
+        tlSummarySheet.getRangeByIndex(summaryRow, 3).setText(project.name);
+        tlSummarySheet.getRangeByIndex(summaryRow, 4).setNumber(projectTotal);
+        tlSummarySheet
+            .getRangeByIndex(summaryRow, 5)
+            .setText(member?.fullName ?? userEntry.key);
+        tlSummarySheet
+            .getRangeByIndex(summaryRow, 6)
+            .setText(member?.email ?? '');
+        tlSummarySheet
+            .getRangeByIndex(summaryRow, 7)
+            .setNumber(userEntry.value);
+        tlSummarySheet
+            .getRangeByIndex(summaryRow, 8)
+            .setNumber(memberMonthTotal);
+        summaryRow++;
+      }
+    }
+    tlSummarySheet.getRangeByIndex(summaryRow + 1, 3).setText('Totale ore');
+    tlSummarySheet.getRangeByIndex(summaryRow + 1, 4).setNumber(grandTotal);
 
     economicsSheet.getRangeByName('A1').setText('Mese');
     economicsSheet.getRangeByName('B1').setText('Progetto');
@@ -620,6 +694,18 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
             );
           },
         ),
+      _QuickActionConfig(
+        title: 'Richieste ferie',
+        subtitle: 'Invia, approva e monitora assenze',
+        icon: Icons.beach_access_outlined,
+        color: AppTheme.successColor,
+        onTap: () {
+          Navigator.push(
+            context,
+            MaterialPageRoute(builder: (_) => const VacationRequestsScreen()),
+          );
+        },
+      ),
     ];
 
     return Scaffold(
@@ -1113,7 +1199,10 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
                               );
                             },
                             name: project.name,
-                            description: project.description,
+                            description: _projectDescriptionWithOwner(
+                              project,
+                              dataService,
+                            ),
                             color: _parseColor(project.color),
                           ),
                         ),
@@ -1135,6 +1224,19 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
     } catch (_) {
       return AppTheme.primaryColor;
     }
+  }
+
+  String _projectDescriptionWithOwner(
+    Project project,
+    DataService dataService,
+  ) {
+    final owner = project.ownerUserId == null
+        ? null
+        : dataService.getUserById(project.ownerUserId!);
+    final ownerLabel = owner == null
+        ? 'TL non assegnato'
+        : 'TL: ${owner.fullName}';
+    return '${project.description}\n$ownerLabel';
   }
 }
 

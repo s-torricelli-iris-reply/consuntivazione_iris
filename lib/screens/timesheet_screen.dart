@@ -29,9 +29,8 @@ class _TimeSheetScreenState extends State<TimeSheetScreen> {
     final visibleProjects = user == null
         ? <Project>[]
         : dataService.getProjectsVisibleForUser(user);
-    final hasVacationProject = dataService.projects
-        .where((project) => project.isActive)
-        .any(dataService.isVacationProject);
+    final hasVacationProject =
+        user != null && dataService.getVacationProjectForUser(user) != null;
 
     final todayEntries = dataService.getEntriesForDate(userId, _selectedDate)
       ..sort((a, b) => a.createdAt.compareTo(b.createdAt));
@@ -246,6 +245,11 @@ class _TimeSheetScreenState extends State<TimeSheetScreen> {
                           child: _EntryCard(
                             entry: entry,
                             project: project,
+                            ownerName: project?.ownerUserId == null
+                                ? null
+                                : dataService
+                                      .getUserById(project!.ownerUserId!)
+                                      ?.fullName,
                             onDelete: () async {
                               await dataService.deleteTimesheetEntry(entry.id);
                             },
@@ -300,14 +304,14 @@ class _TimeSheetScreenState extends State<TimeSheetScreen> {
         .getProjectsVisibleForUser(currentUser)
         .where((project) => project.isActive)
         .toList();
-    final globalVacationProject = _findVacationProject(
-      dataService.projects.where((project) => project.isActive).toList(),
+    final userVacationProject = dataService.getVacationProjectForUser(
+      currentUser,
     );
-    if (globalVacationProject != null &&
+    if (userVacationProject != null &&
         !availableProjects.any(
-          (project) => project.id == globalVacationProject.id,
+          (project) => project.id == userVacationProject.id,
         )) {
-      availableProjects.add(globalVacationProject);
+      availableProjects.add(userVacationProject);
     }
     Project? selectedProject = entry != null
         ? dataService.getProjectById(entry.projectId)
@@ -323,7 +327,7 @@ class _TimeSheetScreenState extends State<TimeSheetScreen> {
     }
     double selectedHours = entry?.hours ?? 0.5;
 
-    final vacationProject = _findVacationProject(availableProjects);
+    final vacationProject = userVacationProject;
     final messenger = ScaffoldMessenger.of(context);
 
     await showModalBottomSheet(
@@ -396,7 +400,16 @@ class _TimeSheetScreenState extends State<TimeSheetScreen> {
                                     .map(
                                       (project) => DropdownMenuItem(
                                         value: project,
-                                        child: Text(project.name),
+                                        child: _ProjectDropdownLabel(
+                                          project: project,
+                                          ownerName: project.ownerUserId == null
+                                              ? null
+                                              : dataService
+                                                    .getUserById(
+                                                      project.ownerUserId!,
+                                                    )
+                                                    ?.fullName,
+                                        ),
                                       ),
                                     )
                                     .toList(),
@@ -702,15 +715,37 @@ class _TimeSheetScreenState extends State<TimeSheetScreen> {
     await Future<void>.delayed(const Duration(milliseconds: 400));
     notesController.dispose();
   }
+}
 
-  Project? _findVacationProject(List<Project> projects) {
-    for (final project in projects) {
-      final normalized = project.name.toLowerCase().trim();
-      if (normalized.contains('ferie')) {
-        return project;
-      }
-    }
-    return null;
+class _ProjectDropdownLabel extends StatelessWidget {
+  final Project project;
+  final String? ownerName;
+
+  const _ProjectDropdownLabel({required this.project, required this.ownerName});
+
+  @override
+  Widget build(BuildContext context) {
+    return ConstrainedBox(
+      constraints: const BoxConstraints(maxWidth: 420),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Text(
+            project.name,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: const TextStyle(fontWeight: FontWeight.w700),
+          ),
+          Text(
+            ownerName == null ? 'TL non assegnato' : 'TL: $ownerName',
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: AppTheme.caption,
+          ),
+        ],
+      ),
+    );
   }
 }
 
@@ -1187,6 +1222,7 @@ class _EmptyState extends StatelessWidget {
 class _EntryCard extends StatelessWidget {
   final TimesheetEntry entry;
   final Project? project;
+  final String? ownerName;
   final VoidCallback onDelete;
   final VoidCallback onEdit;
   final VoidCallback? onProjectTap;
@@ -1194,6 +1230,7 @@ class _EntryCard extends StatelessWidget {
   const _EntryCard({
     required this.entry,
     required this.project,
+    required this.ownerName,
     required this.onDelete,
     required this.onEdit,
     this.onProjectTap,
@@ -1250,6 +1287,15 @@ class _EntryCard extends StatelessWidget {
                           fontWeight: FontWeight.w700,
                         ),
                       ),
+                      if (ownerName != null) ...[
+                        const SizedBox(height: 2),
+                        Text(
+                          'TL: $ownerName',
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: AppTheme.caption,
+                        ),
+                      ],
                       if ((entry.notes ?? '').trim().isNotEmpty) ...[
                         const SizedBox(height: 4),
                         Text(

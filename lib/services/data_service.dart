@@ -8,6 +8,7 @@ import '../models/commessa_model.dart';
 import '../models/project_model.dart';
 import '../models/timesheet_entry.dart';
 import '../models/user_model.dart';
+import '../models/vacation_request_model.dart';
 import '../utils/work_calendar_utils.dart';
 import 'firebase_sync_service.dart';
 
@@ -16,11 +17,13 @@ class DataService extends ChangeNotifier {
   List<Project> _projects = [];
   List<Commessa> _commesse = [];
   List<TimesheetEntry> _timesheetEntries = [];
+  List<VacationRequest> _vacationRequests = [];
   bool _isLoading = false;
   StreamSubscription<List<User>>? _usersSubscription;
   StreamSubscription<List<Project>>? _projectsSubscription;
   StreamSubscription<List<Commessa>>? _commesseSubscription;
   StreamSubscription<List<TimesheetEntry>>? _timesheetSubscription;
+  StreamSubscription<List<VacationRequest>>? _vacationRequestsSubscription;
   final StreamController<int> _realtimeTickController =
       StreamController<int>.broadcast();
   int _realtimeTick = 0;
@@ -31,6 +34,7 @@ class DataService extends ChangeNotifier {
   List<Project> get projects => _projects;
   List<Commessa> get commesse => _commesse;
   List<TimesheetEntry> get timesheetEntries => _timesheetEntries;
+  List<VacationRequest> get vacationRequests => _vacationRequests;
   bool get isLoading => _isLoading;
   Stream<int> get realtimeTickStream => _realtimeTickController.stream;
   int get realtimeTick => _realtimeTick;
@@ -39,6 +43,7 @@ class DataService extends ChangeNotifier {
   static const String _projectsKey = 'projects';
   static const String _commesseKey = 'commesse';
   static const String _timesheetKey = 'timesheet_entries';
+  static const String _vacationRequestsKey = 'vacation_requests';
 
   Future<void> initialize() async {
     _isLoading = true;
@@ -60,8 +65,9 @@ class DataService extends ChangeNotifier {
       if (!_firebaseSync.isEnabled && _projects.isEmpty) {
         await _createSampleProjects();
       }
+      await _ensureSystemProjects();
+      await _ensureVacationProjectsForTeamLeads();
       if (!_firebaseSync.isEnabled) {
-        await _ensureSystemProjects();
         await _ensureDefaultAdminUser();
       }
 
@@ -69,6 +75,7 @@ class DataService extends ChangeNotifier {
       await _saveProjects(syncRemote: false);
       await _saveCommesse(syncRemote: false);
       await _saveTimesheetEntries(syncRemote: false);
+      await _saveVacationRequests(syncRemote: false);
     } catch (e) {
       debugPrint('Error initializing data: $e');
     } finally {
@@ -87,10 +94,13 @@ class DataService extends ChangeNotifier {
     notifyListeners();
     try {
       await _loadFromFirebase();
+      await _ensureSystemProjects();
+      await _ensureVacationProjectsForTeamLeads();
       await _saveUsers(syncRemote: false);
       await _saveProjects(syncRemote: false);
       await _saveCommesse(syncRemote: false);
       await _saveTimesheetEntries(syncRemote: false);
+      await _saveVacationRequests(syncRemote: false);
       _emitRealtimeTick();
     } catch (e) {
       debugPrint('Error refreshing Firebase data: $e');
@@ -110,6 +120,7 @@ class DataService extends ChangeNotifier {
         _users = users;
         _emitRealtimeTick();
         await _saveUsers(syncRemote: false);
+        await _ensureVacationProjectsForTeamLeads();
       },
       onError: (error) {
         debugPrint('Realtime users error: $error');
@@ -121,6 +132,7 @@ class DataService extends ChangeNotifier {
         _projects = projects;
         _emitRealtimeTick();
         await _saveProjects(syncRemote: false);
+        await _ensureVacationProjectsForTeamLeads();
       },
       onError: (error) {
         debugPrint('Realtime projects error: $error');
@@ -148,6 +160,19 @@ class DataService extends ChangeNotifier {
         debugPrint('Realtime timesheet error: $error');
       },
     );
+
+    _vacationRequestsSubscription = _firebaseSync
+        .watchVacationRequests()
+        .listen(
+          (requests) async {
+            _vacationRequests = requests;
+            _emitRealtimeTick();
+            await _saveVacationRequests(syncRemote: false);
+          },
+          onError: (error) {
+            debugPrint('Realtime vacation requests error: $error');
+          },
+        );
   }
 
   void _cancelRealtimeListeners() {
@@ -155,10 +180,12 @@ class DataService extends ChangeNotifier {
     _projectsSubscription?.cancel();
     _commesseSubscription?.cancel();
     _timesheetSubscription?.cancel();
+    _vacationRequestsSubscription?.cancel();
     _usersSubscription = null;
     _projectsSubscription = null;
     _commesseSubscription = null;
     _timesheetSubscription = null;
+    _vacationRequestsSubscription = null;
   }
 
   void _emitRealtimeTick() {
@@ -174,16 +201,20 @@ class DataService extends ChangeNotifier {
       final remoteProjects = await _firebaseSync.fetchProjects();
       final remoteCommesse = await _firebaseSync.fetchCommesse();
       final remoteEntries = await _firebaseSync.fetchTimesheetEntries();
+      final remoteVacationRequests = await _firebaseSync
+          .fetchVacationRequests();
 
       _users = remoteUsers;
       _projects = remoteProjects;
       _commesse = remoteCommesse;
       _timesheetEntries = remoteEntries;
+      _vacationRequests = remoteVacationRequests;
 
       return remoteUsers.isNotEmpty ||
           remoteProjects.isNotEmpty ||
           remoteCommesse.isNotEmpty ||
-          remoteEntries.isNotEmpty;
+          remoteEntries.isNotEmpty ||
+          remoteVacationRequests.isNotEmpty;
     } catch (e) {
       debugPrint('Error loading Firebase data: $e');
       return false;
@@ -214,6 +245,14 @@ class DataService extends ChangeNotifier {
       final List<dynamic> timesheetList = json.decode(timesheetJson);
       _timesheetEntries = timesheetList
           .map((t) => TimesheetEntry.fromJson(t))
+          .toList();
+    }
+
+    final vacationRequestsJson = prefs.getString(_vacationRequestsKey);
+    if (vacationRequestsJson != null) {
+      final List<dynamic> requestsList = json.decode(vacationRequestsJson);
+      _vacationRequests = requestsList
+          .map((r) => VacationRequest.fromJson(r))
           .toList();
     }
   }
@@ -271,6 +310,99 @@ class DataService extends ChangeNotifier {
     }
   }
 
+  Future<void> _ensureVacationProjectsForTeamLeads() async {
+    if (_users.isEmpty) {
+      return;
+    }
+
+    final now = DateTime.now();
+    var changed = false;
+    final teamLeads = _users
+        .where((u) => u.role == UserRole.teamLead && u.isActive)
+        .toList();
+
+    for (final tl in teamLeads) {
+      final expectedName = _vacationProjectNameForTeamLead(tl);
+      final assignedUserIds = <String>{
+        tl.id,
+        ...getDevelopersForTeamLead(tl.id).map((u) => u.id),
+      }.toList()..sort();
+      final expectedId = _vacationProjectIdForTeamLead(tl);
+      final existingIndex = _projects.indexWhere(
+        (project) =>
+            project.id == expectedId ||
+            (project.ownerUserId == tl.id && isVacationProject(project)),
+      );
+
+      if (existingIndex == -1) {
+        _projects.add(
+          Project(
+            id: expectedId,
+            name: expectedName,
+            description: 'Assenze, ferie e permessi del team ${tl.fullName}.',
+            color: '#10B981',
+            ownerUserId: tl.id,
+            assignedUserIds: assignedUserIds,
+            createdAt: now,
+          ),
+        );
+        changed = true;
+        continue;
+      }
+
+      final existing = _projects[existingIndex];
+      final needsUpdate =
+          existing.name != expectedName ||
+          existing.ownerUserId != tl.id ||
+          !_sameStringSet(existing.assignedUserIds, assignedUserIds) ||
+          !existing.isActive;
+      if (needsUpdate) {
+        _projects[existingIndex] = existing.copyWith(
+          name: expectedName,
+          description: 'Assenze, ferie e permessi del team ${tl.fullName}.',
+          ownerUserId: tl.id,
+          assignedUserIds: assignedUserIds,
+          isActive: true,
+        );
+        changed = true;
+      }
+    }
+
+    if (changed) {
+      await _saveProjects(syncRemote: false);
+      if (_firebaseSync.isEnabled) {
+        for (final project in _projects.where(isVacationProject)) {
+          try {
+            await _firebaseSync.upsertProject(project);
+          } catch (e) {
+            debugPrint('Firebase upsert vacation project error: $e');
+          }
+        }
+      }
+    }
+  }
+
+  String _vacationProjectNameForTeamLead(User teamLead) {
+    final surname = teamLead.surname.trim().isEmpty
+        ? teamLead.name.trim()
+        : teamLead.surname.trim();
+    return 'Assenze/Ferie_$surname';
+  }
+
+  String _vacationProjectIdForTeamLead(User teamLead) {
+    final safeId = teamLead.id.trim().toLowerCase().replaceAll(
+      RegExp(r'[^a-z0-9_]+'),
+      '_',
+    );
+    return 'proj_assenze_ferie_$safeId';
+  }
+
+  bool _sameStringSet(List<String> a, List<String> b) {
+    final left = a.toSet();
+    final right = b.toSet();
+    return left.length == right.length && left.containsAll(right);
+  }
+
   Future<void> _ensureDefaultAdminUser() async {
     if (_firebaseSync.isEnabled) {
       return;
@@ -297,6 +429,7 @@ class DataService extends ChangeNotifier {
   Future<void> addUser(User user) async {
     _users.add(user);
     await _saveUsers(syncRemote: false);
+    await _ensureVacationProjectsForTeamLeads();
 
     if (_firebaseSync.isEnabled) {
       try {
@@ -312,6 +445,7 @@ class DataService extends ChangeNotifier {
     if (index != -1) {
       _users[index] = user;
       await _saveUsers(syncRemote: false);
+      await _ensureVacationProjectsForTeamLeads();
 
       if (_firebaseSync.isEnabled) {
         try {
@@ -326,6 +460,7 @@ class DataService extends ChangeNotifier {
   Future<void> deleteUser(String userId) async {
     _users.removeWhere((u) => u.id == userId);
     await _saveUsers(syncRemote: false);
+    await _ensureVacationProjectsForTeamLeads();
 
     if (_firebaseSync.isEnabled) {
       try {
@@ -541,6 +676,128 @@ class DataService extends ChangeNotifier {
     }
   }
 
+  Future<void> addVacationRequest(VacationRequest request) async {
+    _vacationRequests.add(request);
+    await _saveVacationRequests(syncRemote: false);
+
+    if (_firebaseSync.isEnabled) {
+      try {
+        await _firebaseSync.upsertVacationRequest(request);
+      } catch (e) {
+        debugPrint('Firebase upsertVacationRequest error: $e');
+      }
+    }
+  }
+
+  Future<void> approveVacationRequest({
+    required String requestId,
+    required User reviewer,
+    String? reviewerNote,
+  }) async {
+    final index = _vacationRequests.indexWhere((r) => r.id == requestId);
+    if (index == -1) {
+      return;
+    }
+
+    final request = _vacationRequests[index];
+    if (request.approverUserId != reviewer.id &&
+        reviewer.role != UserRole.admin &&
+        reviewer.role != UserRole.manager) {
+      return;
+    }
+
+    final updated = request.copyWith(
+      status: VacationRequestStatus.approved,
+      reviewerUserId: reviewer.id,
+      reviewerNote: reviewerNote,
+      reviewedAt: DateTime.now(),
+      updatedAt: DateTime.now(),
+    );
+    _vacationRequests[index] = updated;
+    await _saveVacationRequests(syncRemote: false);
+
+    if (_firebaseSync.isEnabled) {
+      try {
+        await _firebaseSync.upsertVacationRequest(updated);
+      } catch (e) {
+        debugPrint('Firebase upsertVacationRequest error: $e');
+      }
+    }
+
+    await _createVacationTimesheetEntries(updated, actor: reviewer);
+  }
+
+  Future<void> rejectVacationRequest({
+    required String requestId,
+    required User reviewer,
+    String? reviewerNote,
+  }) async {
+    final index = _vacationRequests.indexWhere((r) => r.id == requestId);
+    if (index == -1) {
+      return;
+    }
+
+    final request = _vacationRequests[index];
+    if (request.approverUserId != reviewer.id &&
+        reviewer.role != UserRole.admin &&
+        reviewer.role != UserRole.manager) {
+      return;
+    }
+
+    final updated = request.copyWith(
+      status: VacationRequestStatus.rejected,
+      reviewerUserId: reviewer.id,
+      reviewerNote: reviewerNote,
+      reviewedAt: DateTime.now(),
+      updatedAt: DateTime.now(),
+    );
+    _vacationRequests[index] = updated;
+    await _saveVacationRequests(syncRemote: false);
+
+    if (_firebaseSync.isEnabled) {
+      try {
+        await _firebaseSync.upsertVacationRequest(updated);
+      } catch (e) {
+        debugPrint('Firebase upsertVacationRequest error: $e');
+      }
+    }
+  }
+
+  Future<void> _createVacationTimesheetEntries(
+    VacationRequest request, {
+    required User actor,
+  }) async {
+    final requester = getUserById(request.requesterUserId);
+    if (requester == null) {
+      return;
+    }
+
+    final vacationProject = getVacationProjectForUser(requester);
+    if (vacationProject == null) {
+      return;
+    }
+
+    var cursor = DateUtils.dateOnly(request.startDate);
+    final end = DateUtils.dateOnly(request.endDate);
+    while (!cursor.isAfter(end)) {
+      if (isWorkingDay(cursor) && getDailyHours(requester.id, cursor) == 0) {
+        await addTimesheetEntry(
+          TimesheetEntry(
+            id: 'entry_ferie_${request.id}_${cursor.millisecondsSinceEpoch}',
+            userId: requester.id,
+            projectId: vacationProject.id,
+            date: cursor,
+            hours: 8.0,
+            notes: 'Ferie approvate',
+            createdAt: DateTime.now(),
+          ),
+          actor: actor,
+        );
+      }
+      cursor = cursor.add(const Duration(days: 1));
+    }
+  }
+
   double getDailyHours(String userId, DateTime date) {
     final entries = _timesheetEntries.where(
       (t) =>
@@ -734,6 +991,24 @@ class DataService extends ChangeNotifier {
     notifyListeners();
   }
 
+  Future<void> _saveVacationRequests({bool syncRemote = false}) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(
+      _vacationRequestsKey,
+      json.encode(_vacationRequests.map((r) => r.toJson()).toList()),
+    );
+
+    if (syncRemote && _firebaseSync.isEnabled) {
+      try {
+        await _firebaseSync.syncVacationRequests(_vacationRequests);
+      } catch (e) {
+        debugPrint('Firebase syncVacationRequests error: $e');
+      }
+    }
+
+    notifyListeners();
+  }
+
   Project? getProjectById(String projectId) {
     try {
       return _projects.firstWhere((p) => p.id == projectId);
@@ -854,6 +1129,83 @@ class DataService extends ChangeNotifier {
     }
   }
 
+  List<User> getVacationApproversForUser(User user) {
+    if (user.role == UserRole.teamLead) {
+      final managers = getUsersByRole(UserRole.manager);
+      final directManager = user.managerId == null
+          ? null
+          : getUserById(user.managerId!);
+      return [
+        if (directManager != null && directManager.isActive) directManager,
+        ...managers.where((m) => m.id != directManager?.id),
+      ];
+    }
+
+    if (user.role == UserRole.manager || user.role == UserRole.admin) {
+      return _users
+          .where(
+            (u) =>
+                u.isActive &&
+                u.id != user.id &&
+                (u.role == UserRole.manager || u.role == UserRole.admin),
+          )
+          .toList();
+    }
+
+    final teamLeads = getUsersByRole(UserRole.teamLead);
+    final directTeamLead = user.teamLeadId == null
+        ? null
+        : getUserById(user.teamLeadId!);
+    return [
+      if (directTeamLead != null && directTeamLead.isActive) directTeamLead,
+      ...teamLeads.where((tl) => tl.id != directTeamLead?.id),
+    ];
+  }
+
+  List<VacationRequest> getVacationRequestsForRequester(String userId) {
+    return _vacationRequests.where((r) => r.requesterUserId == userId).toList()
+      ..sort((a, b) => b.createdAt.compareTo(a.createdAt));
+  }
+
+  List<VacationRequest> getVacationRequestsForApprover(String userId) {
+    return _vacationRequests.where((r) => r.approverUserId == userId).toList()
+      ..sort((a, b) {
+        final statusCompare = a.status.index.compareTo(b.status.index);
+        if (statusCompare != 0) {
+          return statusCompare;
+        }
+        return b.createdAt.compareTo(a.createdAt);
+      });
+  }
+
+  Project? getVacationProjectForUser(User user) {
+    if (user.role == UserRole.teamLead) {
+      return getVacationProjectForTeamLead(user.id);
+    }
+    if (user.teamLeadId != null && user.teamLeadId!.trim().isNotEmpty) {
+      return getVacationProjectForTeamLead(user.teamLeadId!);
+    }
+    for (final project in _projects) {
+      if (project.isActive &&
+          isVacationProject(project) &&
+          project.assignedUserIds.contains(user.id)) {
+        return project;
+      }
+    }
+    return null;
+  }
+
+  Project? getVacationProjectForTeamLead(String teamLeadId) {
+    for (final project in _projects) {
+      if (project.isActive &&
+          project.ownerUserId == teamLeadId &&
+          isVacationProject(project)) {
+        return project;
+      }
+    }
+    return null;
+  }
+
   List<Project> getProjectsVisibleForUser(User user) {
     final activeProjects = _projects.where((p) => p.isActive).toList();
 
@@ -876,10 +1228,11 @@ class DataService extends ChangeNotifier {
       case UserRole.manager:
         return true;
       case UserRole.teamLead:
-        return project.ownerUserId == viewer.id || isVacationProject(project);
+        return project.ownerUserId == viewer.id ||
+            (isVacationProject(project) &&
+                project.assignedUserIds.contains(viewer.id));
       case UserRole.employee:
-        return project.assignedUserIds.contains(viewer.id) ||
-            isVacationProject(project);
+        return project.assignedUserIds.contains(viewer.id);
     }
   }
 
@@ -889,10 +1242,11 @@ class DataService extends ChangeNotifier {
       case UserRole.manager:
         return true;
       case UserRole.teamLead:
-        return project.ownerUserId == user.id || isVacationProject(project);
+        return project.ownerUserId == user.id ||
+            (isVacationProject(project) &&
+                project.assignedUserIds.contains(user.id));
       case UserRole.employee:
-        return project.assignedUserIds.contains(user.id) ||
-            isVacationProject(project);
+        return project.assignedUserIds.contains(user.id);
     }
   }
 

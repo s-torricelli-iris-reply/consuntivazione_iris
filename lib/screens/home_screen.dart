@@ -10,6 +10,7 @@ import 'admin_dashboard_screen.dart';
 import 'calendar_screen.dart';
 import 'profile_screen.dart';
 import 'timesheet_screen.dart';
+import 'vacation_requests_screen.dart';
 import 'web_dashboard_screen.dart';
 
 class HomeScreen extends StatefulWidget {
@@ -80,6 +81,7 @@ class _HomeScreenState extends State<HomeScreen>
     final mobileScreens = <Widget>[
       const TimeSheetScreen(),
       const CalendarScreen(),
+      const VacationRequestsScreen(),
       if (canViewTeamDashboard) const AdminDashboardScreen(),
       const ProfileScreen(),
     ];
@@ -97,6 +99,13 @@ class _HomeScreenState extends State<HomeScreen>
         activeIcon: Icons.calendar_month,
         gradient: LinearGradient(
           colors: [Color(0xFF00A6FB), Color(0xFF05D5E8)],
+        ),
+      ),
+      const _DockNavItemData(
+        icon: Icons.beach_access_outlined,
+        activeIcon: Icons.beach_access,
+        gradient: LinearGradient(
+          colors: [Color(0xFF16A34A), Color(0xFF06B6D4)],
         ),
       ),
       if (canViewTeamDashboard)
@@ -117,8 +126,8 @@ class _HomeScreenState extends State<HomeScreen>
     ];
 
     if (isWideLayout) {
-      final teamTabIndex = 3;
-      final profileTabIndex = canViewTeamDashboard ? 4 : 3;
+      final teamTabIndex = 4;
+      final profileTabIndex = canViewTeamDashboard ? 5 : 4;
 
       final webScreens = <Widget>[
         WebDashboardScreen(
@@ -147,6 +156,7 @@ class _HomeScreenState extends State<HomeScreen>
         ),
         const TimeSheetScreen(),
         const CalendarScreen(),
+        const VacationRequestsScreen(),
         if (canViewTeamDashboard) const AdminDashboardScreen(),
         const ProfileScreen(),
       ];
@@ -174,6 +184,14 @@ class _HomeScreenState extends State<HomeScreen>
           label: 'Calendario',
           gradient: LinearGradient(
             colors: [Color(0xFF42A5F5), Color(0xFF26C6DA)],
+          ),
+        ),
+        const _WebNavItemData(
+          icon: Icons.beach_access_outlined,
+          activeIcon: Icons.beach_access,
+          label: 'Ferie',
+          gradient: LinearGradient(
+            colors: [Color(0xFF16A34A), Color(0xFF06B6D4)],
           ),
         ),
         if (canViewTeamDashboard)
