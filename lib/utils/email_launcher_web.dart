@@ -2,7 +2,7 @@
 
 import 'dart:html' as html;
 
-bool launchEmailDraft({
+bool launchOutlookAppDraft({
   required String to,
   required String subject,
   required String body,
@@ -12,14 +12,72 @@ bool launchEmailDraft({
     return false;
   }
 
-  final query = [
-    'to=${Uri.encodeComponent(normalizedTo)}',
-    'subject=${Uri.encodeComponent(subject)}',
-    'body=${Uri.encodeComponent(body)}',
-  ].join('&');
+  html.window.location.href = _composeUrl(
+    schemeAndPath: 'ms-outlook://compose',
+    to: normalizedTo,
+    subject: subject,
+    body: body,
+  );
+  return true;
+}
+
+bool launchDefaultMailDraft({
+  required String to,
+  required String subject,
+  required String body,
+}) {
+  final normalizedTo = to.trim();
+  if (normalizedTo.isEmpty) {
+    return false;
+  }
+
+  html.window.location.href = _composeUrl(
+    schemeAndPath: 'mailto:$normalizedTo',
+    to: null,
+    subject: subject,
+    body: body,
+  );
+  return true;
+}
+
+bool launchOutlookWebDraft({
+  required String to,
+  required String subject,
+  required String body,
+}) {
+  final normalizedTo = to.trim();
+  if (normalizedTo.isEmpty) {
+    return false;
+  }
+
   html.window.open(
-    'https://outlook.office.com/mail/deeplink/compose?$query',
+    _composeUrl(
+      schemeAndPath: 'https://outlook.office.com/mail/deeplink/compose',
+      to: normalizedTo,
+      subject: subject,
+      body: body,
+      extraParams: const {'popoutv2': '1'},
+    ),
     '_blank',
   );
   return true;
+}
+
+String _composeUrl({
+  required String schemeAndPath,
+  required String? to,
+  required String subject,
+  required String body,
+  Map<String, String> extraParams = const {},
+}) {
+  final params = <String>[
+    if (to != null) 'to=${Uri.encodeComponent(to)}',
+    'subject=${Uri.encodeComponent(subject)}',
+    'body=${Uri.encodeComponent(body)}',
+    ...extraParams.entries.map(
+      (entry) =>
+          '${Uri.encodeComponent(entry.key)}=${Uri.encodeComponent(entry.value)}',
+    ),
+  ].join('&');
+  return '$schemeAndPath?$params';
 }

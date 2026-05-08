@@ -494,7 +494,7 @@ class _VacationRequestsScreenState extends State<VacationRequestsScreen> {
     required String title,
     required _EmailDraft draft,
   }) async {
-    final opened = await showDialog<bool>(
+    final action = await showDialog<_EmailLaunchAction>(
       context: context,
       builder: (dialogContext) => AlertDialog(
         title: Text(title),
@@ -525,32 +525,61 @@ class _VacationRequestsScreenState extends State<VacationRequestsScreen> {
         ),
         actions: [
           TextButton(
-            onPressed: () => Navigator.of(dialogContext).pop(false),
+            onPressed: () =>
+                Navigator.of(dialogContext).pop(_EmailLaunchAction.skip),
             child: const Text('Non ora'),
           ),
+          TextButton.icon(
+            onPressed: () =>
+                Navigator.of(dialogContext).pop(_EmailLaunchAction.web),
+            icon: const Icon(Icons.language_outlined),
+            label: const Text('Outlook web'),
+          ),
+          OutlinedButton.icon(
+            onPressed: () =>
+                Navigator.of(dialogContext).pop(_EmailLaunchAction.mailto),
+            icon: const Icon(Icons.mail_outline),
+            label: const Text('Client email'),
+          ),
           ElevatedButton.icon(
-            onPressed: () {
-              final success = launchEmailDraft(
-                to: draft.to,
-                subject: draft.subject,
-                body: draft.body,
-              );
-              Navigator.of(dialogContext).pop(success);
-            },
+            onPressed: () =>
+                Navigator.of(dialogContext).pop(_EmailLaunchAction.outlookApp),
             icon: const Icon(Icons.open_in_new),
-            label: const Text('Apri Outlook'),
+            label: const Text('Outlook app'),
           ),
         ],
       ),
     );
 
-    if (!context.mounted || opened == null) {
+    if (!context.mounted ||
+        action == null ||
+        action == _EmailLaunchAction.skip) {
       return;
     }
-    if (!opened) {
+
+    final opened = switch (action) {
+      _EmailLaunchAction.outlookApp => launchOutlookAppDraft(
+        to: draft.to,
+        subject: draft.subject,
+        body: draft.body,
+      ),
+      _EmailLaunchAction.mailto => launchDefaultMailDraft(
+        to: draft.to,
+        subject: draft.subject,
+        body: draft.body,
+      ),
+      _EmailLaunchAction.web => launchOutlookWebDraft(
+        to: draft.to,
+        subject: draft.subject,
+        body: draft.body,
+      ),
+      _EmailLaunchAction.skip => false,
+    };
+
+    if (!opened && context.mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-          content: Text('Email non inviata: puoi riaprire Outlook dal flusso.'),
+          content: Text('Impossibile aprire il client email selezionato.'),
         ),
       );
     }
@@ -612,6 +641,8 @@ class _EmailDraft {
     required this.body,
   });
 }
+
+enum _EmailLaunchAction { outlookApp, mailto, web, skip }
 
 class _VacationHero extends StatelessWidget {
   final int pendingIncoming;
