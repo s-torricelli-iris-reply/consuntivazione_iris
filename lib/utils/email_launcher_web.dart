@@ -7,18 +7,7 @@ bool launchOutlookAppDraft({
   required String subject,
   required String body,
 }) {
-  final normalizedTo = to.trim();
-  if (normalizedTo.isEmpty) {
-    return false;
-  }
-
-  html.window.location.href = _composeUrl(
-    schemeAndPath: 'ms-outlook://compose',
-    to: normalizedTo,
-    subject: subject,
-    body: body,
-  );
-  return true;
+  return launchDefaultMailDraft(to: to, subject: subject, body: body);
 }
 
 bool launchDefaultMailDraft({

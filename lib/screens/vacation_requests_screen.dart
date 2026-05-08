@@ -539,13 +539,13 @@ class _VacationRequestsScreenState extends State<VacationRequestsScreen> {
             onPressed: () =>
                 Navigator.of(dialogContext).pop(_EmailLaunchAction.mailto),
             icon: const Icon(Icons.mail_outline),
-            label: const Text('Client email'),
+            label: const Text('App email'),
           ),
           ElevatedButton.icon(
             onPressed: () =>
                 Navigator.of(dialogContext).pop(_EmailLaunchAction.outlookApp),
             icon: const Icon(Icons.open_in_new),
-            label: const Text('Outlook app'),
+            label: const Text('Apri app'),
           ),
         ],
       ),
