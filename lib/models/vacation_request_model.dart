@@ -7,6 +7,7 @@ class VacationRequest {
   final DateTime startDate;
   final DateTime endDate;
   final int workingDays;
+  final double dayFraction;
   final String motivation;
   final VacationRequestStatus status;
   final String? reviewerUserId;
@@ -24,6 +25,7 @@ class VacationRequest {
     required this.startDate,
     required this.endDate,
     required this.workingDays,
+    this.dayFraction = 1.0,
     required this.motivation,
     this.status = VacationRequestStatus.pending,
     this.reviewerUserId,
@@ -43,6 +45,7 @@ class VacationRequest {
       startDate: DateTime.parse(json['startDate'].toString()),
       endDate: DateTime.parse(json['endDate'].toString()),
       workingDays: (json['workingDays'] as num?)?.toInt() ?? 0,
+      dayFraction: (json['dayFraction'] as num?)?.toDouble() ?? 1.0,
       motivation: (json['motivation'] ?? '').toString(),
       status: _statusFromJson(json['status']),
       reviewerUserId: json['reviewerUserId']?.toString(),
@@ -70,6 +73,7 @@ class VacationRequest {
     'startDate': startDate.toIso8601String(),
     'endDate': endDate.toIso8601String(),
     'workingDays': workingDays,
+    'dayFraction': dayFraction,
     'motivation': motivation,
     'status': status.name,
     'reviewerUserId': reviewerUserId,
@@ -88,6 +92,7 @@ class VacationRequest {
     DateTime? startDate,
     DateTime? endDate,
     int? workingDays,
+    double? dayFraction,
     String? motivation,
     VacationRequestStatus? status,
     String? reviewerUserId,
@@ -105,6 +110,7 @@ class VacationRequest {
       startDate: startDate ?? this.startDate,
       endDate: endDate ?? this.endDate,
       workingDays: workingDays ?? this.workingDays,
+      dayFraction: dayFraction ?? this.dayFraction,
       motivation: motivation ?? this.motivation,
       status: status ?? this.status,
       reviewerUserId: reviewerUserId ?? this.reviewerUserId,

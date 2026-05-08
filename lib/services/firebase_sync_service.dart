@@ -678,6 +678,7 @@ class FirebaseSyncService {
       map['startDate'] = _toIsoString(map['startDate']) ?? _nowIso();
       map['endDate'] = _toIsoString(map['endDate']) ?? _nowIso();
       map['workingDays'] = (map['workingDays'] as num?)?.toInt() ?? 0;
+      map['dayFraction'] = _toDouble(map['dayFraction']) ?? 1.0;
       map['motivation'] = (map['motivation'] ?? '').toString();
       map['status'] = (map['status'] ?? 'pending').toString();
       map['reviewerUserId'] = map['reviewerUserId']?.toString();

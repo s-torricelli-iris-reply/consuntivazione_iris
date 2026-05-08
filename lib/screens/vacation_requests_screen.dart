@@ -20,6 +20,7 @@ class VacationRequestsScreen extends StatefulWidget {
 class _VacationRequestsScreenState extends State<VacationRequestsScreen> {
   DateTimeRange? _selectedRange;
   String? _selectedApproverId;
+  double _selectedDayFraction = 1.0;
   final TextEditingController _motivationController = TextEditingController();
 
   @override
@@ -89,6 +90,7 @@ class _VacationRequestsScreenState extends State<VacationRequestsScreen> {
                   delay: const Duration(milliseconds: 90),
                   child: _RequestFormCard(
                     selectedRange: _selectedRange,
+                    selectedDayFraction: _selectedDayFraction,
                     selectedApproverId: _selectedApproverId,
                     approvers: approvers,
                     motivationController: _motivationController,
@@ -96,6 +98,11 @@ class _VacationRequestsScreenState extends State<VacationRequestsScreen> {
                     onApproverChanged: (value) {
                       setState(() {
                         _selectedApproverId = value;
+                      });
+                    },
+                    onDayFractionChanged: (value) {
+                      setState(() {
+                        _selectedDayFraction = value;
                       });
                     },
                     onSubmit: approvers.isEmpty
@@ -232,15 +239,16 @@ class _VacationRequestsScreenState extends State<VacationRequestsScreen> {
       startDate: range.start,
       endDate: range.end,
       workingDays: workingDays,
+      dayFraction: _selectedDayFraction,
       motivation: motivation,
       createdAt: DateTime.now(),
     );
     await dataService.addVacationRequest(request);
 
     final approver = dataService.getUserById(approverId);
-    final emailStarted = approver == null
-        ? false
-        : _sendRequestEmail(
+    final emailDraft = approver == null
+        ? null
+        : _buildRequestEmail(
             requester: currentUser,
             approver: approver,
             request: request,
@@ -252,18 +260,22 @@ class _VacationRequestsScreenState extends State<VacationRequestsScreen> {
     }
     setState(() {
       _selectedRange = null;
+      _selectedDayFraction = 1.0;
       _motivationController.clear();
     });
     ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(
-          emailStarted
-              ? 'Richiesta salvata e bozza email aperta.'
-              : 'Richiesta salvata. Email non disponibile su questa piattaforma.',
-        ),
+      const SnackBar(
+        content: Text('Richiesta ferie salvata.'),
         backgroundColor: AppTheme.successColor,
       ),
     );
+    if (emailDraft != null) {
+      await _showEmailConfirmation(
+        context: context,
+        title: 'Invia email al referente',
+        draft: emailDraft,
+      );
+    }
   }
 
   Future<void> _approveRequest({
@@ -277,14 +289,14 @@ class _VacationRequestsScreenState extends State<VacationRequestsScreen> {
       reviewer: currentUser,
     );
     final requester = dataService.getUserById(request.requesterUserId);
-    if (requester != null) {
-      _sendReviewEmail(
-        requester: requester,
-        reviewer: currentUser,
-        request: request,
-        approved: true,
-      );
-    }
+    final emailDraft = requester == null
+        ? null
+        : _buildReviewEmail(
+            requester: requester,
+            reviewer: currentUser,
+            request: request,
+            approved: true,
+          );
     if (!context.mounted) {
       return;
     }
@@ -294,6 +306,13 @@ class _VacationRequestsScreenState extends State<VacationRequestsScreen> {
         backgroundColor: AppTheme.successColor,
       ),
     );
+    if (emailDraft != null) {
+      await _showEmailConfirmation(
+        context: context,
+        title: 'Invia conferma via Outlook',
+        draft: emailDraft,
+      );
+    }
   }
 
   Future<void> _rejectRequest({
@@ -315,16 +334,26 @@ class _VacationRequestsScreenState extends State<VacationRequestsScreen> {
       suggestedEndDate: decision.suggestedRange?.end,
     );
     final requester = dataService.getUserById(request.requesterUserId);
-    if (requester != null) {
-      _sendReviewEmail(
-        requester: requester,
-        reviewer: currentUser,
-        request: request.copyWith(
-          reviewerNote: decision.note.isEmpty ? null : decision.note,
-          suggestedStartDate: decision.suggestedRange?.start,
-          suggestedEndDate: decision.suggestedRange?.end,
-        ),
-        approved: false,
+    final emailDraft = requester == null
+        ? null
+        : _buildReviewEmail(
+            requester: requester,
+            reviewer: currentUser,
+            request: request.copyWith(
+              reviewerNote: decision.note.isEmpty ? null : decision.note,
+              suggestedStartDate: decision.suggestedRange?.start,
+              suggestedEndDate: decision.suggestedRange?.end,
+            ),
+            approved: false,
+          );
+    if (!context.mounted) {
+      return;
+    }
+    if (emailDraft != null) {
+      await _showEmailConfirmation(
+        context: context,
+        title: 'Invia esito via Outlook',
+        draft: emailDraft,
       );
     }
   }
@@ -412,13 +441,13 @@ class _VacationRequestsScreenState extends State<VacationRequestsScreen> {
     return decision;
   }
 
-  bool _sendRequestEmail({
+  _EmailDraft _buildRequestEmail({
     required User requester,
     required User approver,
     required VacationRequest request,
     required DataService dataService,
   }) {
-    return launchEmailDraft(
+    return _EmailDraft(
       to: approver.email,
       subject:
           'Richiesta ferie - ${requester.fullName} - ${_formatRange(request.startDate, request.endDate)}',
@@ -432,7 +461,7 @@ class _VacationRequestsScreenState extends State<VacationRequestsScreen> {
     );
   }
 
-  bool _sendReviewEmail({
+  _EmailDraft _buildReviewEmail({
     required User requester,
     required User reviewer,
     required VacationRequest request,
@@ -448,7 +477,7 @@ class _VacationRequestsScreenState extends State<VacationRequestsScreen> {
         ? 'e\' stata confermata.'
         : 'non e\' stata confermata.$note$suggested';
 
-    return launchEmailDraft(
+    return _EmailDraft(
       to: requester.email,
       subject:
           '${approved ? 'Conferma' : 'Esito'} ferie - ${_formatRange(request.startDate, request.endDate)}',
@@ -460,6 +489,73 @@ class _VacationRequestsScreenState extends State<VacationRequestsScreen> {
     );
   }
 
+  Future<void> _showEmailConfirmation({
+    required BuildContext context,
+    required String title,
+    required _EmailDraft draft,
+  }) async {
+    final opened = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: Text(title),
+        content: SizedBox(
+          width: 560,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text('A: ${draft.to}', style: AppTheme.bodySmall),
+              const SizedBox(height: 6),
+              Text('Oggetto: ${draft.subject}', style: AppTheme.bodySmall),
+              const SizedBox(height: 12),
+              Container(
+                constraints: const BoxConstraints(maxHeight: 260),
+                width: double.infinity,
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: AppTheme.surfaceMutedColor.withValues(alpha: 0.35),
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: SingleChildScrollView(
+                  child: SelectableText(draft.body, style: AppTheme.bodySmall),
+                ),
+              ),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(false),
+            child: const Text('Non ora'),
+          ),
+          ElevatedButton.icon(
+            onPressed: () {
+              final success = launchEmailDraft(
+                to: draft.to,
+                subject: draft.subject,
+                body: draft.body,
+              );
+              Navigator.of(dialogContext).pop(success);
+            },
+            icon: const Icon(Icons.open_in_new),
+            label: const Text('Apri Outlook'),
+          ),
+        ],
+      ),
+    );
+
+    if (!context.mounted || opened == null) {
+      return;
+    }
+    if (!opened) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Email non inviata: puoi riaprire Outlook dal flusso.'),
+        ),
+      );
+    }
+  }
+
   String _formatRequestedDays(
     VacationRequest request,
     DataService dataService,
@@ -469,7 +565,9 @@ class _VacationRequestsScreenState extends State<VacationRequestsScreen> {
     final end = DateUtils.dateOnly(request.endDate);
     while (!cursor.isAfter(end)) {
       if (dataService.isWorkingDay(cursor)) {
-        days.add(DateFormat('EEEE d MMMM yyyy', 'it').format(cursor));
+        days.add(
+          '${DateFormat('EEEE d MMMM yyyy', 'it').format(cursor)} (${_formatDayFraction(request.dayFraction)})',
+        );
       }
       cursor = cursor.add(const Duration(days: 1));
     }
@@ -490,6 +588,10 @@ class _VacationRequestsScreenState extends State<VacationRequestsScreen> {
   static String _formatRange(DateTime start, DateTime end) {
     return '${DateFormat('d MMM', 'it').format(start)} - ${DateFormat('d MMM yyyy', 'it').format(end)}';
   }
+
+  static String _formatDayFraction(double value) {
+    return value >= 1.0 ? '1 gg' : '0,5 gg';
+  }
 }
 
 class _RejectionDecision {
@@ -497,6 +599,18 @@ class _RejectionDecision {
   final DateTimeRange? suggestedRange;
 
   const _RejectionDecision({required this.note, required this.suggestedRange});
+}
+
+class _EmailDraft {
+  final String to;
+  final String subject;
+  final String body;
+
+  const _EmailDraft({
+    required this.to,
+    required this.subject,
+    required this.body,
+  });
 }
 
 class _VacationHero extends StatelessWidget {
@@ -557,20 +671,24 @@ class _VacationHero extends StatelessWidget {
 
 class _RequestFormCard extends StatelessWidget {
   final DateTimeRange? selectedRange;
+  final double selectedDayFraction;
   final String? selectedApproverId;
   final List<User> approvers;
   final TextEditingController motivationController;
   final VoidCallback onPickRange;
   final ValueChanged<String?> onApproverChanged;
+  final ValueChanged<double> onDayFractionChanged;
   final VoidCallback? onSubmit;
 
   const _RequestFormCard({
     required this.selectedRange,
+    required this.selectedDayFraction,
     required this.selectedApproverId,
     required this.approvers,
     required this.motivationController,
     required this.onPickRange,
     required this.onApproverChanged,
+    required this.onDayFractionChanged,
     required this.onSubmit,
   });
 
@@ -635,6 +753,27 @@ class _RequestFormCard extends StatelessWidget {
               style: AppTheme.bodySmall.copyWith(color: AppTheme.warningColor),
             ),
           ],
+          const SizedBox(height: 12),
+          Text('Quantita ferie per giorno', style: AppTheme.bodySmall),
+          const SizedBox(height: 8),
+          SegmentedButton<double>(
+            segments: const [
+              ButtonSegment<double>(
+                value: 0.5,
+                label: Text('0,5 gg'),
+                icon: Icon(Icons.timelapse_outlined),
+              ),
+              ButtonSegment<double>(
+                value: 1.0,
+                label: Text('1 gg'),
+                icon: Icon(Icons.today_outlined),
+              ),
+            ],
+            selected: {selectedDayFraction},
+            onSelectionChanged: (selection) {
+              onDayFractionChanged(selection.first);
+            },
+          ),
           const SizedBox(height: 12),
           TextField(
             controller: motivationController,
@@ -722,7 +861,7 @@ class _VacationRequestCard extends StatelessWidget {
                       style: AppTheme.bodyLarge,
                     ),
                     Text(
-                      '$dateLabel • ${request.workingDays} gg lavorativi',
+                      '$dateLabel • ${request.workingDays} gg lavorativi • ${_VacationRequestsScreenState._formatDayFraction(request.dayFraction)} al giorno',
                       style: AppTheme.bodySmall,
                     ),
                   ],

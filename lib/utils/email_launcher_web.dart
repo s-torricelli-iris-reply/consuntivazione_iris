@@ -12,11 +12,14 @@ bool launchEmailDraft({
     return false;
   }
 
-  final uri = Uri(
-    scheme: 'mailto',
-    path: normalizedTo,
-    queryParameters: {'subject': subject, 'body': body},
+  final query = [
+    'to=${Uri.encodeComponent(normalizedTo)}',
+    'subject=${Uri.encodeComponent(subject)}',
+    'body=${Uri.encodeComponent(body)}',
+  ].join('&');
+  html.window.open(
+    'https://outlook.office.com/mail/deeplink/compose?$query',
+    '_blank',
   );
-  html.window.open(uri.toString(), '_self');
   return true;
 }

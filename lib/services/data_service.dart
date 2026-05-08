@@ -784,14 +784,16 @@ class DataService extends ChangeNotifier {
     var cursor = DateUtils.dateOnly(request.startDate);
     final end = DateUtils.dateOnly(request.endDate);
     while (!cursor.isAfter(end)) {
-      if (isWorkingDay(cursor) && getDailyHours(requester.id, cursor) == 0) {
+      final hours = (request.dayFraction * 8.0).clamp(0.5, 8.0).toDouble();
+      final availableHours = 8.0 - getDailyHours(requester.id, cursor);
+      if (isWorkingDay(cursor) && availableHours >= hours) {
         await addTimesheetEntry(
           TimesheetEntry(
             id: 'entry_ferie_${request.id}_${cursor.millisecondsSinceEpoch}',
             userId: requester.id,
             projectId: vacationProject.id,
             date: cursor,
-            hours: 8.0,
+            hours: hours,
             notes: 'Ferie approvate',
             createdAt: DateTime.now(),
           ),
