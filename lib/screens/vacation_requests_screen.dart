@@ -545,7 +545,7 @@ class _VacationRequestsScreenState extends State<VacationRequestsScreen> {
             onPressed: () =>
                 Navigator.of(dialogContext).pop(_EmailLaunchAction.outlookApp),
             icon: const Icon(Icons.open_in_new),
-            label: const Text('Apri app'),
+            label: const Text('Outlook'),
           ),
         ],
       ),
@@ -558,7 +558,7 @@ class _VacationRequestsScreenState extends State<VacationRequestsScreen> {
     }
 
     final opened = switch (action) {
-      _EmailLaunchAction.outlookApp => launchOutlookAppDraft(
+      _EmailLaunchAction.outlookApp => launchOutlookWebDraft(
         to: draft.to,
         subject: draft.subject,
         body: draft.body,
