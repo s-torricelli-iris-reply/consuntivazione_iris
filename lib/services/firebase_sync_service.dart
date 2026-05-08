@@ -682,6 +682,8 @@ class FirebaseSyncService {
       map['status'] = (map['status'] ?? 'pending').toString();
       map['reviewerUserId'] = map['reviewerUserId']?.toString();
       map['reviewerNote'] = map['reviewerNote']?.toString();
+      map['suggestedStartDate'] = _toIsoString(map['suggestedStartDate']);
+      map['suggestedEndDate'] = _toIsoString(map['suggestedEndDate']);
       map['createdAt'] = _toIsoString(map['createdAt']) ?? _nowIso();
       map['updatedAt'] = _toIsoString(map['updatedAt']);
       map['reviewedAt'] = _toIsoString(map['reviewedAt']);

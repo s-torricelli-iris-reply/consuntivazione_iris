@@ -7,6 +7,7 @@ import '../models/vacation_request_model.dart';
 import '../services/auth_service.dart';
 import '../services/data_service.dart';
 import '../theme/app_theme.dart';
+import '../utils/email_launcher.dart';
 import '../widgets/animated_reveal.dart';
 
 class VacationRequestsScreen extends StatefulWidget {
@@ -43,7 +44,9 @@ class _VacationRequestsScreenState extends State<VacationRequestsScreen> {
     }
     _selectedApproverId ??= approvers.isEmpty ? null : approvers.first.id;
 
-    final incoming = dataService.getVacationRequestsForApprover(currentUser.id);
+    final incoming = dataService.getVacationRequestsVisibleForReviewer(
+      currentUser,
+    );
     final mine = dataService.getVacationRequestsForRequester(currentUser.id);
     final pendingIncoming = incoming
         .where((request) => request.status == VacationRequestStatus.pending)
@@ -222,18 +225,27 @@ class _VacationRequestsScreenState extends State<VacationRequestsScreen> {
       return;
     }
 
-    await dataService.addVacationRequest(
-      VacationRequest(
-        id: 'vac_${DateTime.now().millisecondsSinceEpoch}',
-        requesterUserId: currentUser.id,
-        approverUserId: approverId,
-        startDate: range.start,
-        endDate: range.end,
-        workingDays: workingDays,
-        motivation: motivation,
-        createdAt: DateTime.now(),
-      ),
+    final request = VacationRequest(
+      id: 'vac_${DateTime.now().millisecondsSinceEpoch}',
+      requesterUserId: currentUser.id,
+      approverUserId: approverId,
+      startDate: range.start,
+      endDate: range.end,
+      workingDays: workingDays,
+      motivation: motivation,
+      createdAt: DateTime.now(),
     );
+    await dataService.addVacationRequest(request);
+
+    final approver = dataService.getUserById(approverId);
+    final emailStarted = approver == null
+        ? false
+        : _sendRequestEmail(
+            requester: currentUser,
+            approver: approver,
+            request: request,
+            dataService: dataService,
+          );
 
     if (!context.mounted) {
       return;
@@ -243,8 +255,12 @@ class _VacationRequestsScreenState extends State<VacationRequestsScreen> {
       _motivationController.clear();
     });
     ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(
-        content: Text('Richiesta ferie inviata.'),
+      SnackBar(
+        content: Text(
+          emailStarted
+              ? 'Richiesta salvata e bozza email aperta.'
+              : 'Richiesta salvata. Email non disponibile su questa piattaforma.',
+        ),
         backgroundColor: AppTheme.successColor,
       ),
     );
@@ -260,6 +276,15 @@ class _VacationRequestsScreenState extends State<VacationRequestsScreen> {
       requestId: request.id,
       reviewer: currentUser,
     );
+    final requester = dataService.getUserById(request.requesterUserId);
+    if (requester != null) {
+      _sendReviewEmail(
+        requester: requester,
+        reviewer: currentUser,
+        request: request,
+        approved: true,
+      );
+    }
     if (!context.mounted) {
       return;
     }
@@ -277,46 +302,201 @@ class _VacationRequestsScreenState extends State<VacationRequestsScreen> {
     required User currentUser,
     required VacationRequest request,
   }) async {
-    final noteController = TextEditingController();
-    final note = await showDialog<String>(
-      context: context,
-      builder: (dialogContext) => AlertDialog(
-        title: const Text('Respingi richiesta'),
-        content: TextField(
-          controller: noteController,
-          maxLines: 3,
-          decoration: const InputDecoration(
-            labelText: 'Motivazione risposta',
-            prefixIcon: Icon(Icons.edit_note_outlined),
-          ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(dialogContext).pop(),
-            child: const Text('Annulla'),
-          ),
-          ElevatedButton(
-            onPressed: () =>
-                Navigator.of(dialogContext).pop(noteController.text.trim()),
-            style: ElevatedButton.styleFrom(
-              backgroundColor: AppTheme.errorColor,
-            ),
-            child: const Text('Respingi'),
-          ),
-        ],
-      ),
-    );
-    noteController.dispose();
-    if (note == null) {
+    final decision = await _openRejectDialog(context);
+    if (decision == null) {
       return;
     }
 
     await dataService.rejectVacationRequest(
       requestId: request.id,
       reviewer: currentUser,
-      reviewerNote: note.isEmpty ? null : note,
+      reviewerNote: decision.note.isEmpty ? null : decision.note,
+      suggestedStartDate: decision.suggestedRange?.start,
+      suggestedEndDate: decision.suggestedRange?.end,
+    );
+    final requester = dataService.getUserById(request.requesterUserId);
+    if (requester != null) {
+      _sendReviewEmail(
+        requester: requester,
+        reviewer: currentUser,
+        request: request.copyWith(
+          reviewerNote: decision.note.isEmpty ? null : decision.note,
+          suggestedStartDate: decision.suggestedRange?.start,
+          suggestedEndDate: decision.suggestedRange?.end,
+        ),
+        approved: false,
+      );
+    }
+  }
+
+  Future<_RejectionDecision?> _openRejectDialog(BuildContext context) async {
+    final noteController = TextEditingController();
+    DateTimeRange? suggestedRange;
+    final decision = await showDialog<_RejectionDecision>(
+      context: context,
+      builder: (dialogContext) => StatefulBuilder(
+        builder: (context, setDialogState) {
+          final suggestedLabel = suggestedRange == null
+              ? 'Suggerisci date alternative'
+              : _formatRange(suggestedRange!.start, suggestedRange!.end);
+          return AlertDialog(
+            title: const Text('Respingi richiesta'),
+            content: SizedBox(
+              width: 420,
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  TextField(
+                    controller: noteController,
+                    maxLines: 3,
+                    decoration: const InputDecoration(
+                      labelText: 'Motivazione risposta',
+                      prefixIcon: Icon(Icons.edit_note_outlined),
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  SizedBox(
+                    width: double.infinity,
+                    child: OutlinedButton.icon(
+                      onPressed: () async {
+                        final now = DateUtils.dateOnly(DateTime.now());
+                        final picked = await showDateRangePicker(
+                          context: dialogContext,
+                          firstDate: now,
+                          lastDate: DateTime(now.year + 2, 12, 31),
+                          initialDateRange:
+                              suggestedRange ??
+                              DateTimeRange(start: now, end: now),
+                          locale: const Locale('it'),
+                        );
+                        if (picked == null) {
+                          return;
+                        }
+                        setDialogState(() {
+                          suggestedRange = DateTimeRange(
+                            start: DateUtils.dateOnly(picked.start),
+                            end: DateUtils.dateOnly(picked.end),
+                          );
+                        });
+                      },
+                      icon: const Icon(Icons.event_repeat_outlined),
+                      label: Text(suggestedLabel),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.of(dialogContext).pop(),
+                child: const Text('Annulla'),
+              ),
+              ElevatedButton(
+                onPressed: () => Navigator.of(dialogContext).pop(
+                  _RejectionDecision(
+                    note: noteController.text.trim(),
+                    suggestedRange: suggestedRange,
+                  ),
+                ),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: AppTheme.errorColor,
+                ),
+                child: const Text('Respingi'),
+              ),
+            ],
+          );
+        },
+      ),
+    );
+    noteController.dispose();
+    return decision;
+  }
+
+  bool _sendRequestEmail({
+    required User requester,
+    required User approver,
+    required VacationRequest request,
+    required DataService dataService,
+  }) {
+    return launchEmailDraft(
+      to: approver.email,
+      subject:
+          'Richiesta ferie - ${requester.fullName} - ${_formatRange(request.startDate, request.endDate)}',
+      body:
+          'Ciao ${approver.name},\n'
+          'Avrei necessita\' di prendere ferie nel periodo ${_formatMonthPeriod(request.startDate, request.endDate)} nei seguenti giorni:\n'
+          '${_formatRequestedDays(request, dataService)}\n\n'
+          'Rimango in attesa di un tuo riscontro per la conferma delle stesse.\n\n'
+          'Grazie,\n'
+          '${requester.name}',
     );
   }
+
+  bool _sendReviewEmail({
+    required User requester,
+    required User reviewer,
+    required VacationRequest request,
+    required bool approved,
+  }) {
+    final suggested = request.suggestedStartDate == null
+        ? ''
+        : '\nDate alternative suggerite: ${_formatRange(request.suggestedStartDate!, request.suggestedEndDate ?? request.suggestedStartDate!)}';
+    final note = (request.reviewerNote ?? '').trim().isEmpty
+        ? ''
+        : '\nMotivazione: ${request.reviewerNote!.trim()}';
+    final outcome = approved
+        ? 'e\' stata confermata.'
+        : 'non e\' stata confermata.$note$suggested';
+
+    return launchEmailDraft(
+      to: requester.email,
+      subject:
+          '${approved ? 'Conferma' : 'Esito'} ferie - ${_formatRange(request.startDate, request.endDate)}',
+      body:
+          'Ciao ${requester.name},\n'
+          'la tua richiesta ferie per il periodo ${_formatRange(request.startDate, request.endDate)} $outcome\n\n'
+          'Grazie,\n'
+          '${reviewer.name}',
+    );
+  }
+
+  String _formatRequestedDays(
+    VacationRequest request,
+    DataService dataService,
+  ) {
+    final days = <String>[];
+    var cursor = DateUtils.dateOnly(request.startDate);
+    final end = DateUtils.dateOnly(request.endDate);
+    while (!cursor.isAfter(end)) {
+      if (dataService.isWorkingDay(cursor)) {
+        days.add(DateFormat('EEEE d MMMM yyyy', 'it').format(cursor));
+      }
+      cursor = cursor.add(const Duration(days: 1));
+    }
+    return days.isEmpty
+        ? _formatRange(request.startDate, request.endDate)
+        : days.join('\n');
+  }
+
+  String _formatMonthPeriod(DateTime start, DateTime end) {
+    final startLabel = DateFormat('MMMM', 'it').format(start);
+    final endLabel = DateFormat('MMMM', 'it').format(end);
+    if (start.year == end.year && start.month == end.month) {
+      return startLabel;
+    }
+    return '$startLabel/$endLabel';
+  }
+
+  static String _formatRange(DateTime start, DateTime end) {
+    return '${DateFormat('d MMM', 'it').format(start)} - ${DateFormat('d MMM yyyy', 'it').format(end)}';
+  }
+}
+
+class _RejectionDecision {
+  final String note;
+  final DateTimeRange? suggestedRange;
+
+  const _RejectionDecision({required this.note, required this.suggestedRange});
 }
 
 class _VacationHero extends StatelessWidget {
@@ -563,6 +743,16 @@ class _VacationRequestCard extends StatelessWidget {
               request.reviewerNote!.trim().isNotEmpty) ...[
             const SizedBox(height: 6),
             Text('Nota: ${request.reviewerNote}', style: AppTheme.bodySmall),
+          ],
+          if (request.suggestedStartDate != null) ...[
+            const SizedBox(height: 6),
+            Text(
+              'Date alternative: ${_VacationRequestsScreenState._formatRange(request.suggestedStartDate!, request.suggestedEndDate ?? request.suggestedStartDate!)}',
+              style: AppTheme.bodySmall.copyWith(
+                color: AppTheme.textPrimaryColor,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
           ],
           if (canReview) ...[
             const SizedBox(height: 12),

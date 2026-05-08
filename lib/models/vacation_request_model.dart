@@ -11,6 +11,8 @@ class VacationRequest {
   final VacationRequestStatus status;
   final String? reviewerUserId;
   final String? reviewerNote;
+  final DateTime? suggestedStartDate;
+  final DateTime? suggestedEndDate;
   final DateTime createdAt;
   final DateTime? updatedAt;
   final DateTime? reviewedAt;
@@ -26,6 +28,8 @@ class VacationRequest {
     this.status = VacationRequestStatus.pending,
     this.reviewerUserId,
     this.reviewerNote,
+    this.suggestedStartDate,
+    this.suggestedEndDate,
     required this.createdAt,
     this.updatedAt,
     this.reviewedAt,
@@ -43,6 +47,12 @@ class VacationRequest {
       status: _statusFromJson(json['status']),
       reviewerUserId: json['reviewerUserId']?.toString(),
       reviewerNote: json['reviewerNote']?.toString(),
+      suggestedStartDate: json['suggestedStartDate'] == null
+          ? null
+          : DateTime.parse(json['suggestedStartDate'].toString()),
+      suggestedEndDate: json['suggestedEndDate'] == null
+          ? null
+          : DateTime.parse(json['suggestedEndDate'].toString()),
       createdAt: DateTime.parse(json['createdAt'].toString()),
       updatedAt: json['updatedAt'] == null
           ? null
@@ -64,6 +74,8 @@ class VacationRequest {
     'status': status.name,
     'reviewerUserId': reviewerUserId,
     'reviewerNote': reviewerNote,
+    'suggestedStartDate': suggestedStartDate?.toIso8601String(),
+    'suggestedEndDate': suggestedEndDate?.toIso8601String(),
     'createdAt': createdAt.toIso8601String(),
     'updatedAt': updatedAt?.toIso8601String(),
     'reviewedAt': reviewedAt?.toIso8601String(),
@@ -80,6 +92,8 @@ class VacationRequest {
     VacationRequestStatus? status,
     String? reviewerUserId,
     String? reviewerNote,
+    DateTime? suggestedStartDate,
+    DateTime? suggestedEndDate,
     DateTime? createdAt,
     DateTime? updatedAt,
     DateTime? reviewedAt,
@@ -95,6 +109,8 @@ class VacationRequest {
       status: status ?? this.status,
       reviewerUserId: reviewerUserId ?? this.reviewerUserId,
       reviewerNote: reviewerNote ?? this.reviewerNote,
+      suggestedStartDate: suggestedStartDate ?? this.suggestedStartDate,
+      suggestedEndDate: suggestedEndDate ?? this.suggestedEndDate,
       createdAt: createdAt ?? this.createdAt,
       updatedAt: updatedAt ?? this.updatedAt,
       reviewedAt: reviewedAt ?? this.reviewedAt,

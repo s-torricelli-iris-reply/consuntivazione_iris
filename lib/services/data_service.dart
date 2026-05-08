@@ -731,6 +731,8 @@ class DataService extends ChangeNotifier {
     required String requestId,
     required User reviewer,
     String? reviewerNote,
+    DateTime? suggestedStartDate,
+    DateTime? suggestedEndDate,
   }) async {
     final index = _vacationRequests.indexWhere((r) => r.id == requestId);
     if (index == -1) {
@@ -748,6 +750,8 @@ class DataService extends ChangeNotifier {
       status: VacationRequestStatus.rejected,
       reviewerUserId: reviewer.id,
       reviewerNote: reviewerNote,
+      suggestedStartDate: suggestedStartDate,
+      suggestedEndDate: suggestedEndDate,
       reviewedAt: DateTime.now(),
       updatedAt: DateTime.now(),
     );
@@ -1213,6 +1217,38 @@ class DataService extends ChangeNotifier {
         }
         return b.createdAt.compareTo(a.createdAt);
       });
+  }
+
+  List<VacationRequest> getVacationRequestsVisibleForReviewer(User reviewer) {
+    final visibleApproverIds = <String>{reviewer.id};
+
+    if (reviewer.role == UserRole.admin) {
+      return _sortVacationRequests(_vacationRequests.toList());
+    }
+
+    if (reviewer.role == UserRole.manager) {
+      visibleApproverIds.addAll(
+        getTeamLeadsForManager(reviewer.id).map((tl) => tl.id),
+      );
+    }
+
+    return _sortVacationRequests(
+      _vacationRequests
+          .where(
+            (request) => visibleApproverIds.contains(request.approverUserId),
+          )
+          .toList(),
+    );
+  }
+
+  List<VacationRequest> _sortVacationRequests(List<VacationRequest> requests) {
+    return requests..sort((a, b) {
+      final statusCompare = a.status.index.compareTo(b.status.index);
+      if (statusCompare != 0) {
+        return statusCompare;
+      }
+      return b.createdAt.compareTo(a.createdAt);
+    });
   }
 
   Project? getVacationProjectForUser(User user) {
