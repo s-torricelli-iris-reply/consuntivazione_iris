@@ -689,6 +689,42 @@ class DataService extends ChangeNotifier {
     }
   }
 
+  Future<bool> deleteVacationRequest(
+    String requestId, {
+    required User actor,
+  }) async {
+    VacationRequest? request;
+    for (final item in _vacationRequests) {
+      if (item.id == requestId) {
+        request = item;
+        break;
+      }
+    }
+    if (request == null) {
+      return false;
+    }
+
+    final canDelete =
+        request.requesterUserId == actor.id ||
+        actor.role == UserRole.admin ||
+        actor.role == UserRole.manager;
+    if (!canDelete) {
+      return false;
+    }
+
+    _vacationRequests.removeWhere((r) => r.id == requestId);
+    await _saveVacationRequests(syncRemote: false);
+
+    if (_firebaseSync.isEnabled) {
+      try {
+        await _firebaseSync.deleteVacationRequest(requestId);
+      } catch (e) {
+        debugPrint('Firebase deleteVacationRequest error: $e');
+      }
+    }
+    return true;
+  }
+
   Future<void> approveVacationRequest({
     required String requestId,
     required User reviewer,

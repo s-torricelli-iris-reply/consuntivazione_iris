@@ -170,6 +170,13 @@ class _VacationRequestsScreenState extends State<VacationRequestsScreen> {
                       reviewer: request.reviewerUserId == null
                           ? null
                           : dataService.getUserById(request.reviewerUserId!),
+                      canDelete: true,
+                      onDelete: () => _deleteRequest(
+                        context: context,
+                        dataService: dataService,
+                        currentUser: currentUser,
+                        request: request,
+                      ),
                     ),
                   ),
               ],
@@ -313,6 +320,55 @@ class _VacationRequestsScreenState extends State<VacationRequestsScreen> {
         draft: emailDraft,
       );
     }
+  }
+
+  Future<void> _deleteRequest({
+    required BuildContext context,
+    required DataService dataService,
+    required User currentUser,
+    required VacationRequest request,
+  }) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Eliminare richiesta?'),
+        content: Text(
+          'La richiesta ferie ${_formatRange(request.startDate, request.endDate)} verra rimossa.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(false),
+            child: const Text('Annulla'),
+          ),
+          ElevatedButton(
+            onPressed: () => Navigator.of(dialogContext).pop(true),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: AppTheme.errorColor,
+            ),
+            child: const Text('Elimina'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true) {
+      return;
+    }
+
+    final deleted = await dataService.deleteVacationRequest(
+      request.id,
+      actor: currentUser,
+    );
+    if (!context.mounted) {
+      return;
+    }
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(
+          deleted ? 'Richiesta eliminata.' : 'Non puoi eliminare la richiesta.',
+        ),
+        backgroundColor: deleted ? AppTheme.successColor : AppTheme.errorColor,
+      ),
+    );
   }
 
   Future<void> _rejectRequest({
@@ -836,8 +892,10 @@ class _VacationRequestCard extends StatelessWidget {
   final User? approver;
   final User? reviewer;
   final bool canReview;
+  final bool canDelete;
   final VoidCallback? onApprove;
   final VoidCallback? onReject;
+  final VoidCallback? onDelete;
 
   const _VacationRequestCard({
     required this.request,
@@ -845,8 +903,10 @@ class _VacationRequestCard extends StatelessWidget {
     required this.approver,
     required this.reviewer,
     this.canReview = false,
+    this.canDelete = false,
     this.onApprove,
     this.onReject,
+    this.onDelete,
   });
 
   @override
@@ -899,6 +959,15 @@ class _VacationRequestCard extends StatelessWidget {
                 ),
               ),
               _StatusBadge(status: request.status, color: color),
+              if (canDelete && onDelete != null) ...[
+                const SizedBox(width: 4),
+                IconButton(
+                  tooltip: 'Elimina richiesta',
+                  onPressed: onDelete,
+                  icon: const Icon(Icons.delete_outline),
+                  color: AppTheme.errorColor,
+                ),
+              ],
             ],
           ),
           const SizedBox(height: 10),

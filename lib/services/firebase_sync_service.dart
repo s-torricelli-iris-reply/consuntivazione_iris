@@ -333,6 +333,15 @@ class FirebaseSyncService {
     await _entriesRef(db)!.doc(entryId).delete();
   }
 
+  Future<void> deleteVacationRequest(String requestId) async {
+    final db = _safeFirestore();
+    if (db == null) {
+      return;
+    }
+
+    await _vacationRequestsRef(db)!.doc(requestId).delete();
+  }
+
   Future<void> migrateUserReferences({
     required String oldUserId,
     required String newUserId,
