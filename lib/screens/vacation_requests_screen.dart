@@ -558,7 +558,7 @@ class _VacationRequestsScreenState extends State<VacationRequestsScreen> {
     }
 
     final opened = switch (action) {
-      _EmailLaunchAction.outlookApp => launchOutlookWebDraft(
+      _EmailLaunchAction.outlookApp => launchOutlookAppDraft(
         to: draft.to,
         subject: draft.subject,
         body: draft.body,

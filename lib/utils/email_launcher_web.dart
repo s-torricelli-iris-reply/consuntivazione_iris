@@ -7,7 +7,22 @@ bool launchOutlookAppDraft({
   required String subject,
   required String body,
 }) {
-  return launchDefaultMailDraft(to: to, subject: subject, body: body);
+  final normalizedTo = to.trim();
+  if (normalizedTo.isEmpty) {
+    return false;
+  }
+
+  if (_isMobileBrowser) {
+    html.window.location.href = _composeUrl(
+      schemeAndPath: 'ms-outlook://compose',
+      to: normalizedTo,
+      subject: subject,
+      body: body,
+    );
+    return true;
+  }
+
+  return launchOutlookWebDraft(to: normalizedTo, subject: subject, body: body);
 }
 
 bool launchDefaultMailDraft({
@@ -69,4 +84,12 @@ String _composeUrl({
     ),
   ].join('&');
   return '$schemeAndPath?$params';
+}
+
+bool get _isMobileBrowser {
+  final userAgent = html.window.navigator.userAgent.toLowerCase();
+  return userAgent.contains('iphone') ||
+      userAgent.contains('ipad') ||
+      userAgent.contains('android') ||
+      userAgent.contains('mobile');
 }
