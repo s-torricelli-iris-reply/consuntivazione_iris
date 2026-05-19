@@ -18,6 +18,7 @@ class User {
   final DeveloperType? developerType;
   final String? managerId;
   final String? teamLeadId;
+  final bool canCreateProjects;
   final bool isActive;
   final DateTime createdAt;
 
@@ -30,6 +31,7 @@ class User {
     this.developerType,
     this.managerId,
     this.teamLeadId,
+    this.canCreateProjects = false,
     this.isActive = true,
     required this.createdAt,
   });
@@ -46,6 +48,7 @@ class User {
     Object? developerType = _unset,
     Object? managerId = _unset,
     Object? teamLeadId = _unset,
+    bool? canCreateProjects,
     bool? isActive,
     DateTime? createdAt,
   }) {
@@ -64,6 +67,7 @@ class User {
       teamLeadId: identical(teamLeadId, _unset)
           ? this.teamLeadId
           : teamLeadId as String?,
+      canCreateProjects: canCreateProjects ?? this.canCreateProjects,
       isActive: isActive ?? this.isActive,
       createdAt: createdAt ?? this.createdAt,
     );

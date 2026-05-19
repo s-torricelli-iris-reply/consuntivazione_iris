@@ -37,21 +37,28 @@ class _ManageProjectsScreenState extends State<ManageProjectsScreen> {
     if (currentUser == null) {
       return;
     }
+    final canCreateProjects = dataService.canCreateProjectsForUser(currentUser);
+    if (!canCreateProjects) {
+      return;
+    }
 
     final canSetTeamLeadOwner =
         currentUser.role == UserRole.admin ||
         currentUser.role == UserRole.manager;
+    final isDelegatedDeveloper =
+        currentUser.role == UserRole.employee && currentUser.canCreateProjects;
     final teamLeads = dataService.getUsersByRole(UserRole.teamLead)
       ..sort((a, b) => a.fullName.compareTo(b.fullName));
-    final developers =
-        dataService.users
-            .where(
-              (u) =>
-                  u.isActive &&
-                  (u.role == UserRole.employee || u.role == UserRole.admin),
-            )
-            .toList()
-          ..sort((a, b) => a.fullName.compareTo(b.fullName));
+    final developers = isDelegatedDeveloper
+        ? <User>[currentUser]
+        : (dataService.users
+              .where(
+                (u) =>
+                    u.isActive &&
+                    (u.role == UserRole.employee || u.role == UserRole.admin),
+              )
+              .toList()
+            ..sort((a, b) => a.fullName.compareTo(b.fullName)));
     final commesse = dataService.getActiveCommesse()
       ..sort((a, b) => a.codice.compareTo(b.codice));
 
@@ -82,6 +89,11 @@ class _ManageProjectsScreenState extends State<ManageProjectsScreen> {
 
     if (currentUser.role == UserRole.teamLead) {
       selectedOwnerUserId = currentUser.id;
+    } else if (isDelegatedDeveloper) {
+      selectedOwnerUserId = currentUser.teamLeadId ?? project?.ownerUserId;
+      selectedDeveloperIds
+        ..clear()
+        ..add(currentUser.id);
     }
 
     await showModalBottomSheet(
@@ -197,6 +209,23 @@ class _ManageProjectsScreenState extends State<ManageProjectsScreen> {
                                   ),
                                   child: const Text(
                                     'Owner progetto: Team Lead corrente',
+                                    style: AppTheme.bodySmall,
+                                  ),
+                                )
+                              else if (isDelegatedDeveloper)
+                                Container(
+                                  width: double.infinity,
+                                  padding: const EdgeInsets.all(12),
+                                  decoration: BoxDecoration(
+                                    color: AppTheme.primaryColor.withValues(
+                                      alpha: 0.08,
+                                    ),
+                                    borderRadius: BorderRadius.circular(12),
+                                  ),
+                                  child: Text(
+                                    selectedOwnerUserId == null
+                                        ? 'Owner TL non assegnato: il progetto resta visibile a te.'
+                                        : 'Owner progetto: ${dataService.getUserById(selectedOwnerUserId!)?.fullName ?? 'TL di riferimento'}',
                                     style: AppTheme.bodySmall,
                                   ),
                                 ),
@@ -355,19 +384,21 @@ class _ManageProjectsScreenState extends State<ManageProjectsScreen> {
                                     return FilterChip(
                                       selected: isSelected,
                                       label: Text(developer.fullName),
-                                      onSelected: (value) {
-                                        setSheetState(() {
-                                          if (value) {
-                                            selectedDeveloperIds.add(
-                                              developer.id,
-                                            );
-                                          } else {
-                                            selectedDeveloperIds.remove(
-                                              developer.id,
-                                            );
-                                          }
-                                        });
-                                      },
+                                      onSelected: isDelegatedDeveloper
+                                          ? null
+                                          : (value) {
+                                              setSheetState(() {
+                                                if (value) {
+                                                  selectedDeveloperIds.add(
+                                                    developer.id,
+                                                  );
+                                                } else {
+                                                  selectedDeveloperIds.remove(
+                                                    developer.id,
+                                                  );
+                                                }
+                                              });
+                                            },
                                     );
                                   }).toList(),
                                 ),
@@ -460,8 +491,9 @@ class _ManageProjectsScreenState extends State<ManageProjectsScreen> {
 
                                 final colorHex =
                                     '#${selectedColor.toARGB32().toRadixString(16).substring(2)}';
-                                final assignedUserIds =
-                                    selectedDeveloperIds.toList()..sort();
+                                final assignedUserIds = isDelegatedDeveloper
+                                    ? <String>[currentUser.id]
+                                    : (selectedDeveloperIds.toList()..sort());
                                 final hourlyCost = _parseNullableDouble(
                                   hourlyCostController.text,
                                 );
@@ -478,6 +510,8 @@ class _ManageProjectsScreenState extends State<ManageProjectsScreen> {
                                     ? selectedOwnerUserId
                                     : currentUser.role == UserRole.teamLead
                                     ? currentUser.id
+                                    : isDelegatedDeveloper
+                                    ? currentUser.teamLeadId
                                     : project?.ownerUserId;
 
                                 if (project == null) {
@@ -499,6 +533,7 @@ class _ManageProjectsScreenState extends State<ManageProjectsScreen> {
                                         ? estimatedBudget
                                         : null,
                                     ownerUserId: ownerUserId,
+                                    createdByUserId: currentUser.id,
                                     assignedUserIds: assignedUserIds,
                                     createdAt: DateTime.now(),
                                   );
@@ -635,8 +670,10 @@ class _ManageProjectsScreenState extends State<ManageProjectsScreen> {
   Widget build(BuildContext context) {
     final authService = context.watch<AuthService>();
     final dataService = context.watch<DataService>();
-    final canManageProjects = authService.canManageProjects;
     final currentUser = authService.currentUser;
+    final canCreateProjects =
+        currentUser != null &&
+        dataService.canCreateProjectsForUser(currentUser);
     final projects = currentUser == null
         ? dataService.projects.where((p) => p.isActive).toList()
         : dataService.getProjectsVisibleForUser(currentUser);
@@ -711,7 +748,7 @@ class _ManageProjectsScreenState extends State<ManageProjectsScreen> {
                 ),
               ),
             ),
-            if (!canManageProjects)
+            if (!canCreateProjects)
               AnimatedReveal(
                 delay: const Duration(milliseconds: 100),
                 child: Container(
@@ -723,7 +760,7 @@ class _ManageProjectsScreenState extends State<ManageProjectsScreen> {
                     borderRadius: BorderRadius.circular(12),
                   ),
                   child: const Text(
-                    'Accesso in sola lettura: solo Admin, Manager e Team Lead possono creare o modificare progetti.',
+                    'Accesso in sola lettura: Admin, Manager, Team Lead e developer designati possono creare o modificare progetti.',
                     style: AppTheme.bodySmall,
                   ),
                 ),
@@ -801,10 +838,8 @@ class _ManageProjectsScreenState extends State<ManageProjectsScreen> {
                         final description =
                             '${project.description}\n$ownerLabel • $workersLabel • $commessaLabel';
                         final canModifyProject =
-                            canManageProjects &&
-                            (currentUser == null ||
-                                currentUser.role != UserRole.teamLead ||
-                                project.ownerUserId == currentUser.id);
+                            currentUser != null &&
+                            _canModifyProject(currentUser, project);
 
                         return TweenAnimationBuilder<double>(
                           tween: Tween(begin: 0.0, end: 1.0),
@@ -851,7 +886,7 @@ class _ManageProjectsScreenState extends State<ManageProjectsScreen> {
           ],
         ),
       ),
-      floatingActionButton: canManageProjects
+      floatingActionButton: canCreateProjects
           ? FloatingActionButton.extended(
               onPressed: () => _openProjectSheet(),
               icon: const Icon(Icons.add),
@@ -867,5 +902,24 @@ class _ManageProjectsScreenState extends State<ManageProjectsScreen> {
       return null;
     }
     return double.tryParse(value);
+  }
+
+  bool _canModifyProject(User currentUser, Project project) {
+    if (currentUser.role == UserRole.admin ||
+        currentUser.role == UserRole.manager) {
+      return true;
+    }
+
+    if (currentUser.role == UserRole.teamLead) {
+      return project.ownerUserId == currentUser.id;
+    }
+
+    if (currentUser.role == UserRole.employee &&
+        currentUser.canCreateProjects) {
+      return project.createdByUserId == currentUser.id &&
+          project.assignedUserIds.contains(currentUser.id);
+    }
+
+    return false;
   }
 }

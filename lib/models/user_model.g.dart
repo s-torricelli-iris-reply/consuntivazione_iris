@@ -18,6 +18,7 @@ User _$UserFromJson(Map<String, dynamic> json) => User(
   ),
   managerId: json['managerId'] as String?,
   teamLeadId: json['teamLeadId'] as String?,
+  canCreateProjects: json['canCreateProjects'] as bool? ?? false,
   isActive: json['isActive'] as bool? ?? true,
   createdAt: DateTime.parse(json['createdAt'] as String),
 );
@@ -31,6 +32,7 @@ Map<String, dynamic> _$UserToJson(User instance) => <String, dynamic>{
   'developerType': _$DeveloperTypeEnumMap[instance.developerType],
   'managerId': instance.managerId,
   'teamLeadId': instance.teamLeadId,
+  'canCreateProjects': instance.canCreateProjects,
   'isActive': instance.isActive,
   'createdAt': instance.createdAt.toIso8601String(),
 };

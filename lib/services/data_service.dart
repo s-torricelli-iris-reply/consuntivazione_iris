@@ -1135,6 +1135,42 @@ class DataService extends ChangeNotifier {
         .toList();
   }
 
+  bool isTeamContributor(User user) => _isTeamContributor(user);
+
+  bool canCreateProjectsForUser(User user) {
+    return user.role.canManageProjects ||
+        (user.role == UserRole.employee && user.canCreateProjects);
+  }
+
+  bool isUserAssignedToTeamLead(User user, String teamLeadId) {
+    if (user.id == teamLeadId) {
+      return true;
+    }
+
+    final teamLead = getUserById(teamLeadId);
+    return _matchesUserReference(
+      reference: user.teamLeadId,
+      userId: teamLeadId,
+      userEmail: teamLead?.email,
+    );
+  }
+
+  List<User> getManageableUsersForUser(User user) {
+    switch (user.role) {
+      case UserRole.admin:
+        return _users.where((u) => u.isActive).toList();
+      case UserRole.manager:
+        return [
+          ...getTeamLeadsForManager(user.id),
+          ...getDevelopersForManager(user.id),
+        ];
+      case UserRole.teamLead:
+        return getDevelopersForTeamLead(user.id);
+      case UserRole.employee:
+        return <User>[];
+    }
+  }
+
   bool _isTeamContributor(User user) {
     if (!user.isActive) {
       return false;

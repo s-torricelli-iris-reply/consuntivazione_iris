@@ -3,11 +3,13 @@ import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
+import '../models/user_model.dart';
 import '../services/auth_service.dart';
 import '../services/data_service.dart';
 import '../theme/app_theme.dart';
 import 'admin_dashboard_screen.dart';
 import 'calendar_screen.dart';
+import 'manage_projects_screen.dart';
 import 'profile_screen.dart';
 import 'timesheet_screen.dart';
 import 'vacation_requests_screen.dart';
@@ -67,7 +69,12 @@ class _HomeScreenState extends State<HomeScreen>
   Widget build(BuildContext context) {
     final authService = context.watch<AuthService>();
     final dataService = context.watch<DataService>();
+    final currentUser = authService.currentUser;
     final canViewTeamDashboard = authService.canViewTeamDashboard;
+    final showProjectsTab =
+        currentUser != null &&
+        currentUser.role == UserRole.employee &&
+        dataService.canCreateProjectsForUser(currentUser);
     final now = DateTime.now();
     final salaryDay = dataService.getLastWorkingDay(now);
     final isSalaryDay = DateUtils.isSameDay(DateUtils.dateOnly(now), salaryDay);
@@ -82,6 +89,7 @@ class _HomeScreenState extends State<HomeScreen>
       const TimeSheetScreen(),
       const CalendarScreen(),
       const VacationRequestsScreen(),
+      if (showProjectsTab) const ManageProjectsScreen(),
       if (canViewTeamDashboard) const AdminDashboardScreen(),
       const ProfileScreen(),
     ];
@@ -116,6 +124,14 @@ class _HomeScreenState extends State<HomeScreen>
             colors: [Color(0xFFFF7A18), Color(0xFFFFB703)],
           ),
         ),
+      if (showProjectsTab)
+        const _DockNavItemData(
+          icon: Icons.folder_open_outlined,
+          activeIcon: Icons.folder_open,
+          gradient: LinearGradient(
+            colors: [Color(0xFF1958FF), Color(0xFF06B6D4)],
+          ),
+        ),
       const _DockNavItemData(
         icon: Icons.person_outline_rounded,
         activeIcon: Icons.person,
@@ -126,8 +142,8 @@ class _HomeScreenState extends State<HomeScreen>
     ];
 
     if (isWideLayout) {
-      final teamTabIndex = 4;
-      final profileTabIndex = canViewTeamDashboard ? 5 : 4;
+      final teamTabIndex = showProjectsTab ? 5 : 4;
+      final profileTabIndex = showProjectsTab || canViewTeamDashboard ? 5 : 4;
 
       final webScreens = <Widget>[
         WebDashboardScreen(
@@ -157,6 +173,7 @@ class _HomeScreenState extends State<HomeScreen>
         const TimeSheetScreen(),
         const CalendarScreen(),
         const VacationRequestsScreen(),
+        if (showProjectsTab) const ManageProjectsScreen(),
         if (canViewTeamDashboard) const AdminDashboardScreen(),
         const ProfileScreen(),
       ];
@@ -201,6 +218,15 @@ class _HomeScreenState extends State<HomeScreen>
             label: 'Team',
             gradient: LinearGradient(
               colors: [Color(0xFFFF7A18), Color(0xFFFFB703)],
+            ),
+          ),
+        if (showProjectsTab)
+          const _WebNavItemData(
+            icon: Icons.folder_open_outlined,
+            activeIcon: Icons.folder_open,
+            label: 'Progetti',
+            gradient: LinearGradient(
+              colors: [Color(0xFF1958FF), Color(0xFF06B6D4)],
             ),
           ),
         const _WebNavItemData(

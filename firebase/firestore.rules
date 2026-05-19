@@ -58,11 +58,66 @@ service cloud.firestore {
           request.resource.data
               .diff(resource.data)
               .affectedKeys()
-              .hasOnly(['teamLeadId', 'managerId', 'updatedAt']);
+              .hasOnly(['teamLeadId', 'managerId', 'canCreateProjects', 'updatedAt']);
+    }
+
+    function teamLeadCanUpdateDeveloperDelegation() {
+      return isTeamLead() &&
+          resource.data.role == 'employee' &&
+          request.resource.data.role == resource.data.role &&
+          request.resource.data.id == resource.data.id &&
+          request.resource.data.email == resource.data.email &&
+          request.resource.data.name == resource.data.name &&
+          request.resource.data.surname == resource.data.surname &&
+          request.resource.data.createdAt == resource.data.createdAt &&
+          request.resource.data.isActive == resource.data.isActive &&
+          request.resource.data.managerId == resource.data.managerId &&
+          request.resource.data.teamLeadId == request.auth.uid &&
+          resource.data.teamLeadId == request.auth.uid &&
+          request.resource.data
+              .diff(resource.data)
+              .affectedKeys()
+              .hasOnly(['canCreateProjects', 'updatedAt']);
+    }
+
+    function managerCanUpdateDeveloperDelegation() {
+      return isManager() &&
+          resource.data.role == 'employee' &&
+          request.resource.data.role == resource.data.role &&
+          request.resource.data.id == resource.data.id &&
+          request.resource.data.email == resource.data.email &&
+          request.resource.data.name == resource.data.name &&
+          request.resource.data.surname == resource.data.surname &&
+          request.resource.data.createdAt == resource.data.createdAt &&
+          request.resource.data.isActive == resource.data.isActive &&
+          request.resource.data.managerId == resource.data.managerId &&
+          request.resource.data.teamLeadId == resource.data.teamLeadId &&
+          managerOwnsTeamLead(resource.data.teamLeadId) &&
+          request.resource.data
+              .diff(resource.data)
+              .affectedKeys()
+              .hasOnly(['canCreateProjects', 'updatedAt']);
     }
 
     function canManageProjects() {
       return isAdmin() || isManager() || isTeamLead();
+    }
+
+    function canCreateOwnProject(data) {
+      return userRole() == 'employee' &&
+          get(currentUserDocPath()).data.canCreateProjects == true &&
+          data.createdByUserId == request.auth.uid &&
+          data.assignedUserIds is list &&
+          request.auth.uid in data.assignedUserIds;
+    }
+
+    function canUpdateOwnProject(nextData) {
+      return userRole() == 'employee' &&
+          get(currentUserDocPath()).data.canCreateProjects == true &&
+          resource.data.createdByUserId == request.auth.uid &&
+          nextData.createdByUserId == request.auth.uid &&
+          nextData.assignedUserIds is list &&
+          request.auth.uid in nextData.assignedUserIds;
     }
 
     function projectDocPath(projectId) {
@@ -118,7 +173,10 @@ service cloud.firestore {
       allow create: if signedIn() &&
           (isAdmin() || canSelfProvisionUserProfile(userId));
       allow update: if signedIn() &&
-          (isAdmin() || managerCanUpdateEmployeeAssignment());
+          (isAdmin() ||
+           managerCanUpdateEmployeeAssignment() ||
+           managerCanUpdateDeveloperDelegation() ||
+           teamLeadCanUpdateDeveloperDelegation());
       allow delete: if signedIn() && isAdmin();
     }
 
@@ -129,7 +187,8 @@ service cloud.firestore {
           projectBillingIsValid(request.resource.data) && (
             isAdmin() ||
             isManager() ||
-            (isTeamLead() && request.resource.data.ownerUserId == request.auth.uid)
+            (isTeamLead() && request.resource.data.ownerUserId == request.auth.uid) ||
+            canCreateOwnProject(request.resource.data)
           )
       );
 
@@ -139,14 +198,18 @@ service cloud.firestore {
             isManager() ||
             (isTeamLead() &&
                 resource.data.ownerUserId == request.auth.uid &&
-                request.resource.data.ownerUserId == request.auth.uid)
+                request.resource.data.ownerUserId == request.auth.uid) ||
+            canUpdateOwnProject(request.resource.data)
           )
       );
 
       allow delete: if signedIn() && (
           isAdmin() ||
           isManager() ||
-          (isTeamLead() && resource.data.ownerUserId == request.auth.uid)
+          (isTeamLead() && resource.data.ownerUserId == request.auth.uid) ||
+          (userRole() == 'employee' &&
+              get(currentUserDocPath()).data.canCreateProjects == true &&
+              resource.data.createdByUserId == request.auth.uid)
       );
     }
 

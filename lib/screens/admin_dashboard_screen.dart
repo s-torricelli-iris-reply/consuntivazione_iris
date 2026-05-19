@@ -34,6 +34,7 @@ class AdminDashboardScreen extends StatefulWidget {
 class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
   late DateTime _selectedMonth;
   String? _selectedTeamLeadFilterId;
+  String? _selectedUserFilterId;
   String? _selectedProjectFilterId;
   DeveloperType? _selectedDeveloperTypeFilter;
 
@@ -395,19 +396,20 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
             .where(
               (u) =>
                   u.isActive &&
-                  (u.role == UserRole.employee ||
-                      (u.role == UserRole.admin &&
-                          u.teamLeadId != null &&
-                          u.teamLeadId!.trim().isNotEmpty)),
+                  (u.role != UserRole.admin ||
+                      dataService.isTeamContributor(u)),
             )
             .toList(),
-      UserRole.manager => dataService.getDevelopersForManager(currentUser.id),
+      UserRole.manager =>
+        dataService.users
+            .where((u) => u.isActive && u.role != UserRole.admin)
+            .toList(),
       UserRole.teamLead => dataService.getDevelopersForTeamLead(currentUser.id),
       UserRole.employee => <User>[],
     };
     final visibleTeamLeads = switch (currentUser.role) {
       UserRole.admin => dataService.getUsersByRole(UserRole.teamLead),
-      UserRole.manager => dataService.getTeamLeadsForManager(currentUser.id),
+      UserRole.manager => dataService.getUsersByRole(UserRole.teamLead),
       UserRole.teamLead => <User>[],
       UserRole.employee => <User>[],
     };
@@ -417,11 +419,20 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
 
     final filterProjectOptions = allVisibleProjects.toList()
       ..sort((a, b) => a.name.compareTo(b.name));
+    final developerFilterOptions =
+        users.where(dataService.isTeamContributor).toList()
+          ..sort((a, b) => a.fullName.compareTo(b.fullName));
 
     String? effectiveTeamLeadFilterId = _selectedTeamLeadFilterId;
     if (effectiveTeamLeadFilterId != null &&
         !visibleTeamLeads.any((u) => u.id == effectiveTeamLeadFilterId)) {
       effectiveTeamLeadFilterId = null;
+    }
+
+    String? effectiveUserFilterId = _selectedUserFilterId;
+    if (effectiveUserFilterId != null &&
+        !developerFilterOptions.any((u) => u.id == effectiveUserFilterId)) {
+      effectiveUserFilterId = null;
     }
 
     String? effectiveProjectFilterId = _selectedProjectFilterId;
@@ -431,6 +442,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
     }
 
     if (effectiveTeamLeadFilterId != _selectedTeamLeadFilterId ||
+        effectiveUserFilterId != _selectedUserFilterId ||
         effectiveProjectFilterId != _selectedProjectFilterId) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (!mounted) {
@@ -438,6 +450,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
         }
         setState(() {
           _selectedTeamLeadFilterId = effectiveTeamLeadFilterId;
+          _selectedUserFilterId = effectiveUserFilterId;
           _selectedProjectFilterId = effectiveProjectFilterId;
         });
       });
@@ -461,12 +474,17 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
     var filteredUsers = users.where((user) => user.isActive).toList();
     if (effectiveTeamLeadFilterId != null &&
         effectiveTeamLeadFilterId.trim().isNotEmpty) {
-      final tlDevelopers = dataService
-          .getDevelopersForTeamLead(effectiveTeamLeadFilterId)
-          .map((u) => u.id)
-          .toSet();
+      final selectedTeamLeadId = effectiveTeamLeadFilterId;
       filteredUsers = filteredUsers
-          .where((user) => tlDevelopers.contains(user.id))
+          .where(
+            (user) =>
+                dataService.isUserAssignedToTeamLead(user, selectedTeamLeadId),
+          )
+          .toList();
+    }
+    if (effectiveUserFilterId != null) {
+      filteredUsers = filteredUsers
+          .where((u) => u.id == effectiveUserFilterId)
           .toList();
     }
     if (_selectedDeveloperTypeFilter != null) {
@@ -568,8 +586,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
       if (!visibleProjectIds.contains(entry.projectId)) {
         continue;
       }
-      if (filteredUserIds.isNotEmpty &&
-          !filteredUserIds.contains(entry.userId)) {
+      if (!filteredUserIds.contains(entry.userId)) {
         continue;
       }
 
@@ -642,10 +659,12 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
       (sum, row) => sum + row.grossMargin,
     );
     final quickActions = <_QuickActionConfig>[
-      if (authService.isAdmin)
+      if (currentUser.role != UserRole.employee)
         _QuickActionConfig(
-          title: 'Console utenti',
-          subtitle: 'Assegna ruoli, TL e membri team',
+          title: authService.isAdmin ? 'Console utenti' : 'Permessi team',
+          subtitle: authService.isAdmin
+              ? 'Assegna ruoli, TL e membri team'
+              : 'Designa chi può creare progetti',
           icon: Icons.admin_panel_settings_outlined,
           color: AppTheme.primaryColor,
           onTap: () {
@@ -788,13 +807,21 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
                     delay: const Duration(milliseconds: 52),
                     child: _DashboardFilters(
                       visibleTeamLeads: visibleTeamLeads,
+                      visibleUsers: developerFilterOptions,
                       visibleProjects: filterProjectOptions,
                       selectedTeamLeadId: effectiveTeamLeadFilterId,
+                      selectedUserId: effectiveUserFilterId,
                       selectedProjectId: effectiveProjectFilterId,
                       selectedDeveloperType: _selectedDeveloperTypeFilter,
                       onTeamLeadChanged: (value) {
                         setState(() {
                           _selectedTeamLeadFilterId = value;
+                          _selectedUserFilterId = null;
+                        });
+                      },
+                      onUserChanged: (value) {
+                        setState(() {
+                          _selectedUserFilterId = value;
                         });
                       },
                       onProjectChanged: (value) {
@@ -810,6 +837,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
                       onReset: () {
                         setState(() {
                           _selectedTeamLeadFilterId = null;
+                          _selectedUserFilterId = null;
                           _selectedProjectFilterId = null;
                           _selectedDeveloperTypeFilter = null;
                         });
@@ -864,9 +892,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
                                 Navigator.push(
                                   context,
                                   MaterialPageRoute(
-                                    builder: (_) => authService.isAdmin
-                                        ? const ManageUsersScreen()
-                                        : const TeamOverviewScreen(),
+                                    builder: (_) => const ManageUsersScreen(),
                                   ),
                                 );
                               },
@@ -1025,10 +1051,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
                     ),
                   ],
                   const SizedBox(height: 20),
-                  const Text(
-                    'Andamento per sviluppatore',
-                    style: AppTheme.heading3,
-                  ),
+                  const Text('Andamento persone', style: AppTheme.heading3),
                   const SizedBox(height: 10),
                   Container(
                     width: double.infinity,
@@ -1482,22 +1505,28 @@ class _LegendPill extends StatelessWidget {
 
 class _DashboardFilters extends StatelessWidget {
   final List<User> visibleTeamLeads;
+  final List<User> visibleUsers;
   final List<Project> visibleProjects;
   final String? selectedTeamLeadId;
+  final String? selectedUserId;
   final String? selectedProjectId;
   final DeveloperType? selectedDeveloperType;
   final ValueChanged<String?> onTeamLeadChanged;
+  final ValueChanged<String?> onUserChanged;
   final ValueChanged<String?> onProjectChanged;
   final ValueChanged<DeveloperType?> onDeveloperTypeChanged;
   final VoidCallback onReset;
 
   const _DashboardFilters({
     required this.visibleTeamLeads,
+    required this.visibleUsers,
     required this.visibleProjects,
     required this.selectedTeamLeadId,
+    required this.selectedUserId,
     required this.selectedProjectId,
     required this.selectedDeveloperType,
     required this.onTeamLeadChanged,
+    required this.onUserChanged,
     required this.onProjectChanged,
     required this.onDeveloperTypeChanged,
     required this.onReset,
@@ -1540,6 +1569,30 @@ class _DashboardFilters extends StatelessWidget {
                   ),
                 ],
                 onChanged: onTeamLeadChanged,
+              ),
+            ),
+          if (visibleUsers.isNotEmpty)
+            SizedBox(
+              width: 240,
+              child: DropdownButtonFormField<String?>(
+                initialValue: selectedUserId,
+                decoration: const InputDecoration(
+                  labelText: 'Filtro Developer',
+                  prefixIcon: Icon(Icons.person_search_outlined),
+                ),
+                items: [
+                  const DropdownMenuItem<String?>(
+                    value: null,
+                    child: Text('Tutti i Developer'),
+                  ),
+                  ...visibleUsers.map(
+                    (user) => DropdownMenuItem<String?>(
+                      value: user.id,
+                      child: Text(user.fullName),
+                    ),
+                  ),
+                ],
+                onChanged: onUserChanged,
               ),
             ),
           SizedBox(

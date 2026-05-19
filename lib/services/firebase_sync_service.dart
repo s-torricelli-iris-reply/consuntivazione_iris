@@ -593,6 +593,9 @@ class FirebaseSyncService {
         'tlId',
         'tl_id',
       ]);
+      map['canCreateProjects'] = map['canCreateProjects'] is bool
+          ? map['canCreateProjects']
+          : false;
       map['isActive'] = map['isActive'] is bool ? map['isActive'] : true;
       map['createdAt'] = _toIsoString(map['createdAt']) ?? _nowIso();
       return User.fromJson(map);
@@ -621,6 +624,7 @@ class FirebaseSyncService {
       map['estimatedHours'] = _toDouble(map['estimatedHours']);
       map['estimatedBudget'] = _toDouble(map['estimatedBudget']);
       map['ownerUserId'] = map['ownerUserId']?.toString();
+      map['createdByUserId'] = map['createdByUserId']?.toString();
       map['isActive'] = map['isActive'] is bool ? map['isActive'] : true;
       map['createdAt'] = _toIsoString(map['createdAt']) ?? _nowIso();
       final assigned = map['assignedUserIds'];

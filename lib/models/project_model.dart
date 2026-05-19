@@ -15,6 +15,7 @@ class Project {
   final double? estimatedHours;
   final double? estimatedBudget;
   final String? ownerUserId;
+  final String? createdByUserId;
   final bool isActive;
   final DateTime createdAt;
   final List<String> assignedUserIds;
@@ -31,6 +32,7 @@ class Project {
     this.estimatedHours,
     this.estimatedBudget,
     this.ownerUserId,
+    this.createdByUserId,
     this.isActive = true,
     required this.createdAt,
     this.assignedUserIds = const [],
@@ -52,6 +54,7 @@ class Project {
     double? estimatedHours,
     double? estimatedBudget,
     String? ownerUserId,
+    String? createdByUserId,
     bool? isActive,
     DateTime? createdAt,
     List<String>? assignedUserIds,
@@ -68,6 +71,7 @@ class Project {
       estimatedHours: estimatedHours ?? this.estimatedHours,
       estimatedBudget: estimatedBudget ?? this.estimatedBudget,
       ownerUserId: ownerUserId ?? this.ownerUserId,
+      createdByUserId: createdByUserId ?? this.createdByUserId,
       isActive: isActive ?? this.isActive,
       createdAt: createdAt ?? this.createdAt,
       assignedUserIds: assignedUserIds ?? this.assignedUserIds,

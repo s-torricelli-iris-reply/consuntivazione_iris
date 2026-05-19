@@ -46,8 +46,23 @@ class WebDashboardScreen extends StatelessWidget {
 
     final visibleProjects = dataService.getProjectsVisibleForUser(currentUser);
     final projectIds = visibleProjects.map((project) => project.id).toSet();
-    final teamMembers = dataService.getTeamMembersForUser(currentUser)
-      ..sort((a, b) => a.fullName.compareTo(b.fullName));
+    final teamMembers = (switch (currentUser.role) {
+      UserRole.admin =>
+        dataService.users
+            .where(
+              (u) =>
+                  u.isActive &&
+                  (u.role != UserRole.admin ||
+                      dataService.isTeamContributor(u)),
+            )
+            .toList(),
+      UserRole.manager =>
+        dataService.users
+            .where((u) => u.isActive && u.role != UserRole.admin)
+            .toList(),
+      UserRole.teamLead => dataService.getDevelopersForTeamLead(currentUser.id),
+      UserRole.employee => <User>[currentUser],
+    })..sort((a, b) => a.fullName.compareTo(b.fullName));
 
     final currentUserHours = dataService
         .getEntriesForUser(currentUser.id, monthStart, monthEnd)
@@ -107,18 +122,8 @@ class WebDashboardScreen extends StatelessWidget {
     );
     final monthReference = DateTime(now.year, now.month, 1);
     final kpiUsers = switch (currentUser.role) {
-      UserRole.admin =>
-        dataService.users
-            .where(
-              (u) =>
-                  u.isActive &&
-                  (u.role == UserRole.employee ||
-                      (u.role == UserRole.admin &&
-                          u.teamLeadId != null &&
-                          u.teamLeadId!.trim().isNotEmpty)),
-            )
-            .toList(),
-      UserRole.manager => dataService.getDevelopersForManager(currentUser.id),
+      UserRole.admin => teamMembers,
+      UserRole.manager => teamMembers,
       UserRole.teamLead => dataService.getDevelopersForTeamLead(currentUser.id),
       UserRole.employee => <User>[currentUser],
     };

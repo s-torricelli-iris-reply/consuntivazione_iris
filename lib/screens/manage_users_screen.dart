@@ -20,6 +20,19 @@ class _ManageUsersScreenState extends State<ManageUsersScreen> {
 
   Future<void> _openUserSheet({User? user}) async {
     final dataService = context.read<DataService>();
+    final authService = context.read<AuthService>();
+    final actor = authService.currentUser;
+    if (actor == null) {
+      return;
+    }
+
+    final canEditFullProfile = actor.role == UserRole.admin;
+    if (!canEditFullProfile && user == null) {
+      return;
+    }
+
+    final canDelegateProjectCreation =
+        user != null && _canDelegateProjectCreation(actor, user, dataService);
     final formKey = GlobalKey<FormState>();
     final nameController = TextEditingController(text: user?.name ?? '');
     final surnameController = TextEditingController(text: user?.surname ?? '');
@@ -33,6 +46,7 @@ class _ManageUsersScreenState extends State<ManageUsersScreen> {
         user?.role == UserRole.admin &&
         user?.teamLeadId != null &&
         user!.teamLeadId!.trim().isNotEmpty;
+    bool canCreateProjects = user?.canCreateProjects ?? false;
 
     await showModalBottomSheet(
       context: context,
@@ -43,6 +57,11 @@ class _ManageUsersScreenState extends State<ManageUsersScreen> {
           final media = MediaQuery.of(context);
           final managers = dataService.getUsersByRole(UserRole.manager);
           final teamLeads = dataService.getUsersByRole(UserRole.teamLead);
+          final canShowProjectCreationSwitch =
+              canEditFullProfile &&
+                  (selectedRole == UserRole.employee ||
+                      (selectedRole == UserRole.admin && isAdminContributor)) ||
+              canDelegateProjectCreation;
 
           return AnimatedPadding(
             duration: const Duration(milliseconds: 220),
@@ -78,17 +97,22 @@ class _ManageUsersScreenState extends State<ManageUsersScreen> {
                               Text(
                                 user == null
                                     ? 'Nuova persona'
-                                    : 'Modifica persona',
+                                    : canEditFullProfile
+                                    ? 'Modifica persona'
+                                    : 'Permessi progetto',
                                 style: AppTheme.heading2.copyWith(fontSize: 26),
                               ),
                               const SizedBox(height: 6),
-                              const Text(
-                                'Gestisci ruolo e gerarchia team (Manager → TL → Developer).',
+                              Text(
+                                canEditFullProfile
+                                    ? 'Gestisci ruolo e gerarchia team (Manager -> TL -> Developer).'
+                                    : 'Abilita i developer del tuo team a creare progetti in autonomia.',
                                 style: AppTheme.bodyMedium,
                               ),
                               const SizedBox(height: 16),
                               TextFormField(
                                 controller: nameController,
+                                enabled: canEditFullProfile,
                                 decoration: const InputDecoration(
                                   labelText: 'Nome',
                                   prefixIcon: Icon(Icons.person_outline),
@@ -103,6 +127,7 @@ class _ManageUsersScreenState extends State<ManageUsersScreen> {
                               const SizedBox(height: 12),
                               TextFormField(
                                 controller: surnameController,
+                                enabled: canEditFullProfile,
                                 decoration: const InputDecoration(
                                   labelText: 'Cognome',
                                   prefixIcon: Icon(Icons.badge_outlined),
@@ -117,6 +142,7 @@ class _ManageUsersScreenState extends State<ManageUsersScreen> {
                               const SizedBox(height: 12),
                               TextFormField(
                                 controller: emailController,
+                                enabled: canEditFullProfile,
                                 decoration: const InputDecoration(
                                   labelText: 'Email',
                                   prefixIcon: Icon(Icons.email_outlined),
@@ -158,40 +184,52 @@ class _ManageUsersScreenState extends State<ManageUsersScreen> {
                                     child: Text('Manager'),
                                   ),
                                 ],
-                                onChanged: (value) {
-                                  if (value == null) return;
-                                  setSheetState(() {
-                                    selectedRole = value;
-                                    if (value == UserRole.manager ||
-                                        value == UserRole.admin) {
-                                      if (value == UserRole.manager) {
-                                        selectedManagerId = null;
-                                        selectedTeamLeadId = null;
-                                        isAdminContributor = false;
+                                onChanged: canEditFullProfile
+                                    ? (value) {
+                                        if (value == null) return;
+                                        setSheetState(() {
+                                          selectedRole = value;
+                                          if (value == UserRole.manager ||
+                                              value == UserRole.admin) {
+                                            if (value == UserRole.manager) {
+                                              selectedManagerId = null;
+                                              selectedTeamLeadId = null;
+                                              isAdminContributor = false;
+                                            }
+                                          } else if (value ==
+                                              UserRole.teamLead) {
+                                            selectedTeamLeadId = null;
+                                            isAdminContributor = false;
+                                          } else if (value ==
+                                              UserRole.employee) {
+                                            selectedManagerId = null;
+                                            isAdminContributor = false;
+                                          }
+                                          if (value != UserRole.employee &&
+                                              !(value == UserRole.admin &&
+                                                  isAdminContributor)) {
+                                            canCreateProjects = false;
+                                          }
+                                        });
                                       }
-                                    } else if (value == UserRole.teamLead) {
-                                      selectedTeamLeadId = null;
-                                      isAdminContributor = false;
-                                    } else if (value == UserRole.employee) {
-                                      selectedManagerId = null;
-                                      isAdminContributor = false;
-                                    }
-                                  });
-                                },
+                                    : null,
                               ),
                               if (selectedRole == UserRole.admin) ...[
                                 const SizedBox(height: 12),
                                 SwitchListTile.adaptive(
                                   value: isAdminContributor,
-                                  onChanged: (value) {
-                                    setSheetState(() {
-                                      isAdminContributor = value;
-                                      if (!isAdminContributor) {
-                                        selectedTeamLeadId = null;
-                                        selectedManagerId = null;
-                                      }
-                                    });
-                                  },
+                                  onChanged: canEditFullProfile
+                                      ? (value) {
+                                          setSheetState(() {
+                                            isAdminContributor = value;
+                                            if (!isAdminContributor) {
+                                              selectedTeamLeadId = null;
+                                              selectedManagerId = null;
+                                              canCreateProjects = false;
+                                            }
+                                          });
+                                        }
+                                      : null,
                                   title: const Text(
                                     'Admin contributor sotto Team Lead',
                                   ),
@@ -220,20 +258,22 @@ class _ManageUsersScreenState extends State<ManageUsersScreen> {
                                         ),
                                       ),
                                     ],
-                                    onChanged: (value) {
-                                      setSheetState(() {
-                                        selectedTeamLeadId = value;
-                                        User? selectedTl;
-                                        for (final tl in teamLeads) {
-                                          if (tl.id == value) {
-                                            selectedTl = tl;
-                                            break;
+                                    onChanged: canEditFullProfile
+                                        ? (value) {
+                                            setSheetState(() {
+                                              selectedTeamLeadId = value;
+                                              User? selectedTl;
+                                              for (final tl in teamLeads) {
+                                                if (tl.id == value) {
+                                                  selectedTl = tl;
+                                                  break;
+                                                }
+                                              }
+                                              selectedManagerId =
+                                                  selectedTl?.managerId;
+                                            });
                                           }
-                                        }
-                                        selectedManagerId =
-                                            selectedTl?.managerId;
-                                      });
-                                    },
+                                        : null,
                                   ),
                                 ],
                               ],
@@ -259,11 +299,13 @@ class _ManageUsersScreenState extends State<ManageUsersScreen> {
                                       ),
                                     ),
                                   ],
-                                  onChanged: (value) {
-                                    setSheetState(() {
-                                      selectedManagerId = value;
-                                    });
-                                  },
+                                  onChanged: canEditFullProfile
+                                      ? (value) {
+                                          setSheetState(() {
+                                            selectedManagerId = value;
+                                          });
+                                        }
+                                      : null,
                                 ),
                               ],
                               if (selectedRole == UserRole.employee) ...[
@@ -286,19 +328,22 @@ class _ManageUsersScreenState extends State<ManageUsersScreen> {
                                       ),
                                     ),
                                   ],
-                                  onChanged: (value) {
-                                    setSheetState(() {
-                                      selectedTeamLeadId = value;
-                                      User? selectedTl;
-                                      for (final tl in teamLeads) {
-                                        if (tl.id == value) {
-                                          selectedTl = tl;
-                                          break;
+                                  onChanged: canEditFullProfile
+                                      ? (value) {
+                                          setSheetState(() {
+                                            selectedTeamLeadId = value;
+                                            User? selectedTl;
+                                            for (final tl in teamLeads) {
+                                              if (tl.id == value) {
+                                                selectedTl = tl;
+                                                break;
+                                              }
+                                            }
+                                            selectedManagerId =
+                                                selectedTl?.managerId;
+                                          });
                                         }
-                                      }
-                                      selectedManagerId = selectedTl?.managerId;
-                                    });
-                                  },
+                                      : null,
                                 ),
                               ],
                               const SizedBox(height: 12),
@@ -316,12 +361,33 @@ class _ManageUsersScreenState extends State<ManageUsersScreen> {
                                       ),
                                     )
                                     .toList(),
-                                onChanged: (value) {
-                                  setSheetState(() {
-                                    selectedType = value;
-                                  });
-                                },
+                                onChanged: canEditFullProfile
+                                    ? (value) {
+                                        setSheetState(() {
+                                          selectedType = value;
+                                        });
+                                      }
+                                    : null,
                               ),
+                              if (canShowProjectCreationSwitch) ...[
+                                const SizedBox(height: 12),
+                                SwitchListTile.adaptive(
+                                  contentPadding: EdgeInsets.zero,
+                                  value: canCreateProjects,
+                                  title: const Text(
+                                    'Può creare progetti in autonomia',
+                                  ),
+                                  subtitle: const Text(
+                                    'Il developer potrà aggiungere progetti e assegnarli a se stesso sotto il TL di riferimento.',
+                                    style: AppTheme.bodySmall,
+                                  ),
+                                  onChanged: (value) {
+                                    setSheetState(() {
+                                      canCreateProjects = value;
+                                    });
+                                  },
+                                ),
+                              ],
                             ],
                           ),
                         ),
@@ -354,6 +420,25 @@ class _ManageUsersScreenState extends State<ManageUsersScreen> {
                                   return;
                                 }
 
+                                if (!canEditFullProfile) {
+                                  if (user != null &&
+                                      canDelegateProjectCreation) {
+                                    await context
+                                        .read<DataService>()
+                                        .updateUser(
+                                          user.copyWith(
+                                            canCreateProjects:
+                                                canCreateProjects,
+                                          ),
+                                        );
+                                  }
+
+                                  if (sheetContext.mounted) {
+                                    Navigator.of(sheetContext).pop();
+                                  }
+                                  return;
+                                }
+
                                 if (user == null) {
                                   final newUser = User(
                                     id: 'user_${DateTime.now().millisecondsSinceEpoch}',
@@ -377,6 +462,7 @@ class _ManageUsersScreenState extends State<ManageUsersScreen> {
                                               isAdminContributor
                                         ? selectedTeamLeadId
                                         : null,
+                                    canCreateProjects: canCreateProjects,
                                     createdAt: DateTime.now(),
                                   );
 
@@ -405,6 +491,7 @@ class _ManageUsersScreenState extends State<ManageUsersScreen> {
                                               isAdminContributor
                                         ? selectedTeamLeadId
                                         : null,
+                                    canCreateProjects: canCreateProjects,
                                   );
                                   await context.read<DataService>().updateUser(
                                     updated,
@@ -507,15 +594,19 @@ class _ManageUsersScreenState extends State<ManageUsersScreen> {
   Widget build(BuildContext context) {
     final authService = context.watch<AuthService>();
     final dataService = context.watch<DataService>();
+    final currentActor = authService.currentUser;
 
-    if (!authService.isAdmin) {
+    if (currentActor == null ||
+        (currentActor.role != UserRole.admin &&
+            currentActor.role != UserRole.manager &&
+            currentActor.role != UserRole.teamLead)) {
       return Scaffold(
         appBar: AppBar(title: const Text('People Studio')),
         body: const Center(
           child: Padding(
             padding: EdgeInsets.all(24),
             child: Text(
-              'Accesso consentito solo agli Admin.',
+              'Accesso consentito solo a Admin, Manager e Team Lead.',
               textAlign: TextAlign.center,
             ),
           ),
@@ -523,8 +614,9 @@ class _ManageUsersScreenState extends State<ManageUsersScreen> {
       );
     }
 
-    final currentAdmin = authService.currentUser;
-    final users = dataService.users.where((u) => u.isActive).toList();
+    final canEditFullProfile = currentActor.role == UserRole.admin;
+    final users = dataService.getManageableUsersForUser(currentActor)
+      ..sort((a, b) => a.fullName.compareTo(b.fullName));
     final adminCount = users.where((u) => u.role == UserRole.admin).length;
     final managerCount = users.where((u) => u.role == UserRole.manager).length;
     final teamLeadCount = users
@@ -594,8 +686,10 @@ class _ManageUsersScreenState extends State<ManageUsersScreen> {
                     color: AppTheme.primaryColor.withValues(alpha: 0.08),
                     borderRadius: BorderRadius.circular(12),
                   ),
-                  child: const Text(
-                    'Con FirebaseAuth attivo, i nuovi utenti si registrano dall’app. Qui puoi assegnare ruoli e gerarchie.',
+                  child: Text(
+                    canEditFullProfile
+                        ? 'Con FirebaseAuth attivo, i nuovi utenti si registrano dall’app. Qui puoi assegnare ruoli, gerarchie e permessi.'
+                        : 'Qui puoi designare quali developer del tuo perimetro possono creare progetti in autonomia.',
                     style: AppTheme.bodySmall,
                   ),
                 ),
@@ -646,7 +740,7 @@ class _ManageUsersScreenState extends State<ManageUsersScreen> {
                               ),
                               title: Text(user.fullName),
                               subtitle: Text(
-                                '${user.role.displayName}${user.developerType != null ? ' • ${user.developerType!.displayName}' : ''}\n${_relationshipLabel(user, dataService)}\n${user.email}',
+                                '${user.role.displayName}${user.developerType != null ? ' • ${user.developerType!.displayName}' : ''}${user.canCreateProjects ? ' • Progetti autonomi' : ''}\n${_relationshipLabel(user, dataService)}\n${user.email}',
                               ),
                               isThreeLine: true,
                               trailing: PopupMenuButton<String>(
@@ -655,8 +749,7 @@ class _ManageUsersScreenState extends State<ManageUsersScreen> {
                                     _openUserSheet(user: user);
                                   }
                                   if (value == 'delete') {
-                                    if (currentAdmin != null &&
-                                        currentAdmin.id == user.id) {
+                                    if (currentActor.id == user.id) {
                                       ScaffoldMessenger.of(
                                         context,
                                       ).showSnackBar(
@@ -671,30 +764,35 @@ class _ManageUsersScreenState extends State<ManageUsersScreen> {
                                     }
                                   }
                                 },
-                                itemBuilder: (context) => const [
+                                itemBuilder: (context) => [
                                   PopupMenuItem<String>(
                                     value: 'edit',
                                     child: Row(
                                       children: [
-                                        Icon(Icons.edit_outlined),
-                                        SizedBox(width: 8),
-                                        Text('Modifica'),
-                                      ],
-                                    ),
-                                  ),
-                                  PopupMenuItem<String>(
-                                    value: 'delete',
-                                    child: Row(
-                                      children: [
-                                        Icon(
-                                          Icons.delete,
-                                          color: AppTheme.errorColor,
+                                        const Icon(Icons.edit_outlined),
+                                        const SizedBox(width: 8),
+                                        Text(
+                                          canEditFullProfile
+                                              ? 'Modifica'
+                                              : 'Permessi progetto',
                                         ),
-                                        SizedBox(width: 8),
-                                        Text('Elimina'),
                                       ],
                                     ),
                                   ),
+                                  if (canEditFullProfile)
+                                    const PopupMenuItem<String>(
+                                      value: 'delete',
+                                      child: Row(
+                                        children: [
+                                          Icon(
+                                            Icons.delete,
+                                            color: AppTheme.errorColor,
+                                          ),
+                                          SizedBox(width: 8),
+                                          Text('Elimina'),
+                                        ],
+                                      ),
+                                    ),
                                 ],
                               ),
                             ),
@@ -708,12 +806,42 @@ class _ManageUsersScreenState extends State<ManageUsersScreen> {
       ),
       floatingActionButton: authService.isFirebaseMode
           ? null
-          : FloatingActionButton.extended(
+          : canEditFullProfile
+          ? FloatingActionButton.extended(
               onPressed: () => _openUserSheet(),
               icon: const Icon(Icons.add),
               label: const Text('Aggiungi Utente'),
-            ),
+            )
+          : null,
     );
+  }
+
+  bool _canDelegateProjectCreation(
+    User actor,
+    User target,
+    DataService dataService,
+  ) {
+    if (!dataService.isTeamContributor(target)) {
+      return false;
+    }
+    if (actor.role != UserRole.admin && target.role != UserRole.employee) {
+      return false;
+    }
+
+    switch (actor.role) {
+      case UserRole.admin:
+        return true;
+      case UserRole.manager:
+        return dataService
+            .getDevelopersForManager(actor.id)
+            .any((developer) => developer.id == target.id);
+      case UserRole.teamLead:
+        return dataService
+            .getDevelopersForTeamLead(actor.id)
+            .any((developer) => developer.id == target.id);
+      case UserRole.employee:
+        return false;
+    }
   }
 
   String _relationshipLabel(User user, DataService dataService) {
